@@ -14,11 +14,16 @@ final class UpdateService: NSObject {
     func checkForUpdates() {
         updaterController.checkForUpdates(nil)
     }
+
+    func setAutomaticChecksEnabled(_ enabled: Bool) {
+        updaterController.updater.automaticallyChecksForUpdates = enabled
+    }
 }
 #else
 /// Keeps logic tests independent from the app-only Sparkle framework.
 @MainActor
 final class UpdateService {
     func checkForUpdates() {}
+    func setAutomaticChecksEnabled(_ enabled: Bool) {}
 }
 #endif

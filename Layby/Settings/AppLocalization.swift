@@ -66,6 +66,7 @@ final class L10n {
         "已固定在屏幕顶部中央；单击切换大小，用力拖离可解除固定": "Docked at the top center of the display; click to resize, pull away to undock",
         "功能设置": "Features", "通用设置": "General", "设置": "Settings", "设置…": "Settings…",
         "Layby 设置": "Layby Settings", "跟随系统": "Follow System", "语言": "Language", "检查更新…": "Check for Updates…",
+        "在菜单栏显示": "Show in menu bar", "自动检查更新": "Automatically check for updates",
         "选择应用的显示语言，更改后立即生效。": "Choose the app language. Changes apply immediately.",
         "呼出方式": "Activation Methods", "选择习惯的方式，随时唤出 Layby。": "Choose how you bring up Layby.",
         "摇晃文件": "Shake a file", "拖拽文件时摇晃鼠标，即可呼出停放区。": "Shake the pointer while dragging a file to show the shelf.",

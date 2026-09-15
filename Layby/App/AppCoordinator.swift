@@ -4,7 +4,7 @@ import SwiftUI
 import os
 
 @Observable @MainActor
-final class AppCoordinator: NSObject {
+final class AppCoordinator: NSObject, NSWindowDelegate {
     let settings = AppSettings()
     let store = ShelfStore()
     private(set) var hotKeyMessage: String?
@@ -68,7 +68,7 @@ final class AppCoordinator: NSObject {
         }
         workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.observation.refreshPermission() } })
-        showShelf()
+        showSettings()
     }
 
     func stop() {
@@ -120,6 +120,7 @@ final class AppCoordinator: NSObject {
     private func applySettings() {
         if L10n.configure(settings.language) { store.notice = nil }
         installMenus()
+        updates.setAutomaticChecksEnabled(settings.automaticUpdateChecksEnabled)
         settingsWindow?.title = L10n.text("Layby 设置")
         shelf.panel.title = L10n.text("Layby 文件停放区")
         let status = hotKey.register(settings.hotKeyEnabled ? settings.shortcut : nil)
@@ -149,13 +150,14 @@ final class AppCoordinator: NSObject {
         NSWorkspace.shared.open(AppInfo.repositoryURL)
     }
 
-    @objc private func checkForUpdates() {
+    @objc func checkForUpdates() {
         updates.checkForUpdates()
     }
 
     @objc func showSettings() {
-        // A normal settings window can become key while the app remains absent from the Dock.
-        if NSApp.activationPolicy() != .accessory { NSApp.setActivationPolicy(.accessory) }
+        // Settings are a normal foreground window. This gives Layby ownership of the
+        // system menu bar, so opening its status-item menu does not resign the window.
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         if settingsWindow == nil {
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 760, height: 600),
                                   styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -165,6 +167,7 @@ final class AppCoordinator: NSObject {
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none
             window.isReleasedWhenClosed = false
+            window.delegate = self
             window.contentView = NSHostingView(rootView: SettingsView(settings: settings, coordinator: self))
             window.center()
             settingsWindow = window
@@ -172,6 +175,11 @@ final class AppCoordinator: NSObject {
         observation.refreshPermission()
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Keep the shelf-only app out of the Dock once its foreground window closes.
+        if NSApp.activationPolicy() == .regular { NSApp.setActivationPolicy(.accessory) }
     }
 
     private func resetInteraction() {
@@ -198,17 +206,22 @@ final class AppCoordinator: NSObject {
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: L10n.text("退出 Layby"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = item == quit ? NSApp : self }
-        let statusItem = self.statusItem ?? NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let accessibilityDescription = L10n.text("Layby 文件停放区")
-        let menuBarIcon = (NSImage(named: "MenuBarIcon")?.copy() as? NSImage)
-            ?? Self.drawMenuBarIcon()
-        menuBarIcon.isTemplate = true
-        menuBarIcon.size = NSSize(width: 18, height: 18)
-        menuBarIcon.accessibilityDescription = accessibilityDescription
-        statusItem.button?.image = menuBarIcon
-        statusItem.button?.toolTip = L10n.text("Layby — 临时文件停放区")
-        statusItem.menu = menu
-        self.statusItem = statusItem
+        if settings.menuBarEnabled {
+            let statusItem = self.statusItem ?? NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+            let accessibilityDescription = L10n.text("Layby 文件停放区")
+            let menuBarIcon = (NSImage(named: "MenuBarIcon")?.copy() as? NSImage)
+                ?? Self.drawMenuBarIcon()
+            menuBarIcon.isTemplate = true
+            menuBarIcon.size = NSSize(width: 18, height: 18)
+            menuBarIcon.accessibilityDescription = accessibilityDescription
+            statusItem.button?.image = menuBarIcon
+            statusItem.button?.toolTip = L10n.text("Layby — 临时文件停放区")
+            statusItem.menu = menu
+            self.statusItem = statusItem
+        } else if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
         let main = NSMenu()
         let applicationItem = main.addItem(withTitle: "Layby", action: nil, keyEquivalent: "")
         applicationItem.submenu = menu.copy() as? NSMenu

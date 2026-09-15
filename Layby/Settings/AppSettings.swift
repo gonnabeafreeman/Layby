@@ -40,6 +40,8 @@ final class AppSettings {
     var notchEnabled: Bool { didSet { save() } }
     var topEdgeEnabled: Bool { didSet { save() } }
     var hotKeyEnabled: Bool { didSet { save() } }
+    var menuBarEnabled: Bool { didSet { save() } }
+    var automaticUpdateChecksEnabled: Bool { didSet { save() } }
     var sensitivity: ShakeSensitivity { didSet { save() } }
     var modifier: DragModifier { didSet { save() } }
     var shortcut: HotKeyShortcut { didSet { save() } }
@@ -51,12 +53,15 @@ final class AppSettings {
         self.defaults = defaults
         language = AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system
         defaults.register(defaults: ["shakeEnabled": true, "modifierEnabled": true,
-                                    "notchEnabled": true, "hotKeyEnabled": true])
+                                    "notchEnabled": true, "hotKeyEnabled": true,
+                                    "menuBarEnabled": true, "automaticUpdateChecksEnabled": true])
         shakeEnabled = defaults.bool(forKey: "shakeEnabled")
         modifierEnabled = defaults.bool(forKey: "modifierEnabled")
         notchEnabled = defaults.bool(forKey: "notchEnabled")
         topEdgeEnabled = defaults.bool(forKey: "topEdgeEnabled")
         hotKeyEnabled = defaults.bool(forKey: "hotKeyEnabled")
+        menuBarEnabled = defaults.bool(forKey: "menuBarEnabled")
+        automaticUpdateChecksEnabled = defaults.bool(forKey: "automaticUpdateChecksEnabled")
         sensitivity = ShakeSensitivity(rawValue: defaults.string(forKey: "sensitivity") ?? "") ?? .balanced
         modifier = DragModifier(rawValue: defaults.string(forKey: "modifier") ?? "") ?? .shift
         shortcut = defaults.data(forKey: "shortcut").flatMap { try? JSONDecoder().decode(HotKeyShortcut.self, from: $0) } ?? .standard
@@ -75,6 +80,8 @@ final class AppSettings {
         defaults.set(notchEnabled, forKey: "notchEnabled")
         defaults.set(topEdgeEnabled, forKey: "topEdgeEnabled")
         defaults.set(hotKeyEnabled, forKey: "hotKeyEnabled")
+        defaults.set(menuBarEnabled, forKey: "menuBarEnabled")
+        defaults.set(automaticUpdateChecksEnabled, forKey: "automaticUpdateChecksEnabled")
         defaults.set(sensitivity.rawValue, forKey: "sensitivity")
         defaults.set(modifier.rawValue, forKey: "modifier")
         defaults.set(try? JSONEncoder().encode(shortcut), forKey: "shortcut")

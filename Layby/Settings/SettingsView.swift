@@ -128,6 +128,7 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 12)
                 LabeledContent(L10n.text("当前版本"), value: AppInfo.version)
+                Button(L10n.text("检查更新…")) { coordinator.checkForUpdates() }
             }
             Section {
                 HStack(alignment: .top, spacing: 16) {
@@ -173,6 +174,8 @@ struct SettingsView: View {
                     ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.menu)
+                Toggle(L10n.text("在菜单栏显示"), isOn: $settings.menuBarEnabled)
+                Toggle(L10n.text("自动检查更新"), isOn: $settings.automaticUpdateChecksEnabled)
             } footer: {
                 Text(L10n.text("选择应用的显示语言，更改后立即生效。"))
             }

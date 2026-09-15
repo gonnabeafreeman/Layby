@@ -10,6 +10,8 @@ struct SettingsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults)
         #expect(settings.language == .system)
+        #expect(settings.menuBarEnabled)
+        #expect(settings.automaticUpdateChecksEnabled)
         var changes = 0
         settings.onChange = { changes += 1 }
         settings.language = .english
@@ -18,12 +20,15 @@ struct SettingsTests {
         settings.notchEnabled = false
         settings.hotKeyEnabled = false
         settings.topEdgeEnabled = true
+        settings.menuBarEnabled = false
+        settings.automaticUpdateChecksEnabled = false
         let restored = AppSettings(defaults: defaults)
         #expect(restored.language == .english)
         #expect(!restored.shakeEnabled && !restored.modifierEnabled)
         #expect(!restored.notchEnabled && !restored.hotKeyEnabled)
         #expect(restored.topEdgeEnabled)
-        #expect(changes == 6)
+        #expect(!restored.menuBarEnabled && !restored.automaticUpdateChecksEnabled)
+        #expect(changes == 8)
         restored.language = .chinese
         #expect(AppSettings(defaults: defaults).language == .chinese)
         restored.language = .system
