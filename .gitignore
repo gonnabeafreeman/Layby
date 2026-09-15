@@ -7,8 +7,8 @@
 build/
 dist/
 
-# Local Assets
-assets/
+# Local Files
+local/
 
 # Xcode build output and test results
 DerivedData/
