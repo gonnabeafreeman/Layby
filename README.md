@@ -25,6 +25,20 @@ Layby is a macOS file shelf built with Swift and SwiftUI / AppKit. Drag files on
 
 Requires **macOS 15.6 or later**.
 
+### Homebrew
+
+Install Layby from its Homebrew tap:
+
+```sh
+brew tap gonnabeafreeman/layby
+brew trust gonnabeafreeman/layby
+brew install layby
+```
+
+After installation, you can find it in your **Applications** folder.
+
+### Manual installation
+
 Download a prebuilt app archive or `.dmg` from [GitHub Releases](https://github.com/gonnabeafreeman/Layby/releases). No source build is required. Choose an app attachment for the release, rather than GitHub’s automatically generated `Source code` archives.
 
 - **App archive**: Extract the archive, then drag `Layby.app` into your **Applications** folder.

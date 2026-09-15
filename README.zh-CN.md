@@ -25,6 +25,20 @@ Layby 是一个基于 Swift 和 SwiftUI / AppKit 编写的 macOS 文件暂存工
 
 需要 **macOS 15.6 或更新版本**。
 
+### Homebrew 安装
+
+通过 Layby 的 Homebrew tap 安装：
+
+```sh
+brew tap gonnabeafreeman/layby
+brew trust gonnabeafreeman/layby
+brew install layby
+```
+
+安装完成后，你可以在「应用程序」文件夹里找到它。
+
+### 手动安装
+
 前往 [GitHub Releases](https://github.com/gonnabeafreeman/Layby/releases) 下载对应版本的预构建应用压缩包或 `.dmg` 文件，无需从源码编译。请选择发布附件中的应用文件，不要下载 GitHub 自动生成的 `Source code` 源码压缩包。
 
 - **应用压缩包**：解压后，将 `Layby.app` 拖入「应用程序」文件夹。
