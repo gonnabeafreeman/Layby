@@ -30,9 +30,9 @@ Requires **macOS 15.6 or later**.
 Install Layby from its Homebrew tap:
 
 ```sh
-brew tap gonnabeafreeman/layby
-brew trust gonnabeafreeman/layby
-brew install layby
+brew trust gonnabeafreeman/layby && \
+brew tap gonnabeafreeman/layby && \
+brew install --cask gonnabeafreeman/layby/layby
 ```
 
 After installation, you can find it in your **Applications** folder.

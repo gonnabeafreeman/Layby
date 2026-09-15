@@ -30,9 +30,9 @@ Layby 是一个基于 Swift 和 SwiftUI / AppKit 编写的 macOS 文件暂存工
 通过 Layby 的 Homebrew tap 安装：
 
 ```sh
-brew tap gonnabeafreeman/layby
-brew trust gonnabeafreeman/layby
-brew install layby
+brew trust gonnabeafreeman/layby && \
+brew tap gonnabeafreeman/layby && \
+brew install --cask gonnabeafreeman/layby/layby
 ```
 
 安装完成后，你可以在「应用程序」文件夹里找到它。
