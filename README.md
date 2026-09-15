@@ -2,7 +2,6 @@
   <img src="assets/app-icon.png" width="128" height="128" alt="Layby app icon">
 </p>
 
-
 <h1 align="center">Layby</h1>
 
 <p align="center">English | <a href="README.zh-CN.md">简体中文</a></p>
@@ -26,7 +25,7 @@ Layby is a macOS file shelf built with Swift and SwiftUI / AppKit. Drag files on
 
 Requires **macOS 15.6 or later**.
 
-Download a prebuilt app archive or `.dmg` from [GitHub Releases](https://github.com/xavierwang77/Layby/releases). No source build is required. Choose an app attachment for the release, rather than GitHub’s automatically generated `Source code` archives.
+Download a prebuilt app archive or `.dmg` from [GitHub Releases](https://github.com/gonnabeafreeman/Layby/releases). No source build is required. Choose an app attachment for the release, rather than GitHub’s automatically generated `Source code` archives.
 
 - **App archive**: Extract the archive, then drag `Layby.app` into your **Applications** folder.
 - **DMG**: Double-click the `.dmg`, drag `Layby.app` into your **Applications** folder, then eject the disk image after copying finishes.
@@ -59,17 +58,17 @@ Click the top bar to collapse or expand the shelf, or drag it to move the window
 
 These file actions apply to the expanded grid or list.
 
-| Action | Result |
-| --- | --- |
-| ⌘-click / Shift-click | Toggle selection / Select a contiguous range |
-| Arrow keys | Move selection |
-| ⌘A | Select all ready files at the current level |
-| ⌘C | Copy selected files for pasting in Finder |
-| Space | Open or close Quick Look |
-| Double-click a folder | Browse its contents |
-| Delete | Remove selected items from the shelf without deleting the originals; unavailable while browsing a folder |
-| Esc | Close Quick Look first; otherwise close and clear the shelf |
-| ⌘W | Close and clear the shelf |
+| Action                | Result                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| ⌘-click / Shift-click | Toggle selection / Select a contiguous range                                                             |
+| Arrow keys            | Move selection                                                                                           |
+| ⌘A                    | Select all ready files at the current level                                                              |
+| ⌘C                    | Copy selected files for pasting in Finder                                                                |
+| Space                 | Open or close Quick Look                                                                                 |
+| Double-click a folder | Browse its contents                                                                                      |
+| Delete                | Remove selected items from the shelf without deleting the originals; unavailable while browsing a folder |
+| Esc                   | Close Quick Look first; otherwise close and clear the shelf                                              |
+| ⌘W                    | Close and clear the shelf                                                                                |
 
 ### How are files handled?
 

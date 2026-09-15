@@ -2,7 +2,6 @@
   <img src="assets/app-icon.png" width="128" height="128" alt="Layby app icon">
 </p>
 
-
 <h1 align="center">Layby</h1>
 
 <p align="center"><a href="README.md">English</a> | 简体中文</p>
@@ -26,7 +25,7 @@ Layby 是一个基于 Swift 和 SwiftUI / AppKit 编写的 macOS 文件暂存工
 
 需要 **macOS 15.6 或更新版本**。
 
-前往 [GitHub Releases](https://github.com/xavierwang77/Layby/releases) 下载对应版本的预构建应用压缩包或 `.dmg` 文件，无需从源码编译。请选择发布附件中的应用文件，不要下载 GitHub 自动生成的 `Source code` 源码压缩包。
+前往 [GitHub Releases](https://github.com/gonnabeafreeman/Layby/releases) 下载对应版本的预构建应用压缩包或 `.dmg` 文件，无需从源码编译。请选择发布附件中的应用文件，不要下载 GitHub 自动生成的 `Source code` 源码压缩包。
 
 - **应用压缩包**：解压后，将 `Layby.app` 拖入「应用程序」文件夹。
 - **DMG**：双击打开 `.dmg`，将其中的 `Layby.app` 拖入「应用程序」文件夹，复制完成后推出磁盘映像。
@@ -59,17 +58,17 @@ Release 中的预构建应用**未使用 Apple Developer ID 证书签名，也�
 
 以下文件操作用于展开后的网格或列表。
 
-| 操作 | 效果 |
-| --- | --- |
-| ⌘ 单击 / Shift 单击 | 切换选中 / 连续范围选择 |
-| 方向键 | 移动选择 |
-| ⌘A | 全选当前层已就绪的文件 |
-| ⌘C | 复制选中文件，可在 Finder 中粘贴 |
-| 空格 | 打开或关闭快速查看 |
-| 双击文件夹 | 浏览文件夹内容 |
-| Delete | 从停放区移除选中项，不删除原文件；浏览文件夹时不生效 |
-| Esc | 优先关闭快速查看，否则关闭并清空停放区 |
-| ⌘W | 关闭并清空停放区 |
+| 操作                | 效果                                                 |
+| ------------------- | ---------------------------------------------------- |
+| ⌘ 单击 / Shift 单击 | 切换选中 / 连续范围选择                              |
+| 方向键              | 移动选择                                             |
+| ⌘A                  | 全选当前层已就绪的文件                               |
+| ⌘C                  | 复制选中文件，可在 Finder 中粘贴                     |
+| 空格                | 打开或关闭快速查看                                   |
+| 双击文件夹          | 浏览文件夹内容                                       |
+| Delete              | 从停放区移除选中项，不删除原文件；浏览文件夹时不生效 |
+| Esc                 | 优先关闭快速查看，否则关闭并清空停放区               |
+| ⌘W                  | 关闭并清空停放区                                     |
 
 ### 文件会怎样处理？
 
