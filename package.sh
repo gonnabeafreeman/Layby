@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # 用法：./package.sh v1.2.3（也接受 1.2.3）
-# 输入：dist/v1.2.3/Layby.app；输出：同目录下的 Layby-v1.2.3.dmg 和 .zip
+# 输入：dist/v1.2.3/Layby.app；输出：同目录下的 Layby.dmg 和 Layby.zip
 usage() {
     printf '用法：%s <vX.X.X>\n依赖：brew install create-dmg\n' "$(basename "$0")"
 }
@@ -26,8 +26,8 @@ project_root="$(cd "$(dirname "$0")" && pwd)"
 release_dir="$project_root/dist/$version"
 app="$release_dir/Layby.app"
 icon="$project_root/assets/app-icon.png"
-output="$release_dir/Layby-$version.dmg"
-zip_output="$release_dir/Layby-$version.zip"
+output="$release_dir/Layby.dmg"
+zip_output="$release_dir/Layby.zip"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     printf '错误：请在 macOS 上运行此脚本\n' >&2
@@ -87,14 +87,14 @@ create-dmg \
     --hide-extension "Layby.app" \
     --app-drop-link 450 180 \
     --format UDZO \
-    "$work_dir/Layby-$version.dmg" \
+    "$work_dir/Layby.dmg" \
     "$work_dir/source"
 
 # ZIP 保留应用包目录及 macOS 元数据，两个归档都完成后再移入版本目录
 ditto -c -k --sequesterRsrc --keepParent \
-    "$work_dir/source/Layby.app" "$work_dir/Layby-$version.zip"
+    "$work_dir/source/Layby.app" "$work_dir/Layby.zip"
 
-mv "$work_dir/Layby-$version.dmg" "$output"
-mv "$work_dir/Layby-$version.zip" "$zip_output"
+mv "$work_dir/Layby.dmg" "$output"
+mv "$work_dir/Layby.zip" "$zip_output"
 printf 'DMG 已生成：%s\n' "$output"
 printf 'ZIP 已生成：%s\n' "$zip_output"
