@@ -123,7 +123,7 @@ bash scripts/build-local.sh
 open build/local/Layby.app
 ```
 
-The script uses `xcrun` to select the compiler and SDK, builds for your Mac’s architecture, and applies a local ad-hoc signature. Output defaults to `build/local/Layby.app`; set `LAYBY_BUILD_DIR` to use a different output directory.
+The script builds through the Xcode project so Sparkle and its installer service are embedded and signed correctly. Output defaults to `build/local/Layby.app`; set `LAYBY_BUILD_DIR` to use a different output directory.
 
 ## Testing and development
 

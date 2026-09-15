@@ -123,7 +123,7 @@ bash scripts/build-local.sh
 open build/local/Layby.app
 ```
 
-脚本通过 `xcrun` 选择编译器和 SDK，构建当前 Mac 架构的应用，并进行本地 ad-hoc 签名。默认输出为 `build/local/Layby.app`，可通过 `LAYBY_BUILD_DIR` 指定输出目录。
+脚本通过 Xcode 工程构建应用，确保 Sparkle 及其安装服务被正确嵌入并签名。默认输出为 `build/local/Layby.app`，可通过 `LAYBY_BUILD_DIR` 指定输出目录。
 
 ## 测试与开发
 

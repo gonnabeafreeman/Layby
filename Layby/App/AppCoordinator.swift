@@ -12,6 +12,7 @@ final class AppCoordinator: NSObject {
     @ObservationIgnored private lazy var hotKey = GlobalHotKeyService()
     @ObservationIgnored private lazy var notch = NotchDropController(store: store, settings: settings)
     @ObservationIgnored private lazy var shelf = ShelfWindowController(store: store)
+    @ObservationIgnored private lazy var updates = UpdateService()
     @ObservationIgnored private var settingsWindow: NSWindow?
     @ObservationIgnored private var statusItem: NSStatusItem?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -22,6 +23,7 @@ final class AppCoordinator: NSObject {
 
     func start() {
         L10n.configure(settings.language)
+        _ = updates
         installMenus()
         settings.onChange = { [weak self] in self?.applySettings() }
         hotKey.onPress = { [weak self] in self?.showShelf() }
@@ -147,6 +149,10 @@ final class AppCoordinator: NSObject {
         NSWorkspace.shared.open(AppInfo.repositoryURL)
     }
 
+    @objc private func checkForUpdates() {
+        updates.checkForUpdates()
+    }
+
     @objc func showSettings() {
         // A normal settings window can become key while the app remains absent from the Dock.
         if NSApp.activationPolicy() != .accessory { NSApp.setActivationPolicy(.accessory) }
@@ -185,6 +191,8 @@ final class AppCoordinator: NSObject {
         menu.addItem(.separator())
         let preferences = menu.addItem(withTitle: L10n.text("设置…"), action: #selector(showSettings), keyEquivalent: ",")
         preferences.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+        let checkForUpdates = menu.addItem(withTitle: L10n.text("检查更新…"), action: #selector(checkForUpdates), keyEquivalent: "")
+        checkForUpdates.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
         let support = menu.addItem(withTitle: L10n.text("给 Layby 一颗 Star"), action: #selector(openRepository), keyEquivalent: "")
         support.image = NSImage(systemSymbolName: "star", accessibilityDescription: nil)
         menu.addItem(.separator())
