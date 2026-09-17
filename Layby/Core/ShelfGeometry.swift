@@ -2,6 +2,18 @@ import Foundation
 import CoreGraphics
 
 enum ShelfGeometry {
+    // Require at least 30% of the surface outside the display.
+    // Ignore shadows when measuring the hidden area.
+    static func sideCapture(content: CGRect, screen: CGRect) -> ShelfSideEdge? {
+        guard content.width > 0, content.height > 0 else { return nil }
+        let verticalOverlap = max(0, min(content.maxY, screen.maxY) - max(content.minY, screen.minY))
+        let area = content.width * content.height
+        let leftArea = min(content.width, max(0, screen.minX - content.minX)) * verticalOverlap
+        let rightArea = min(content.width, max(0, content.maxX - screen.maxX)) * verticalOverlap
+        if leftArea / area >= 0.30 { return .left }
+        if rightArea / area >= 0.30 { return .right }
+        return nil
+    }
     /// Expand around the existing top center; keep the full window inside its display.
     static func resizedFrame(_ frame: CGRect, size: CGSize, in bounds: CGRect) -> CGRect {
         let size = CGSize(width: min(size.width, bounds.width), height: min(size.height, bounds.height))

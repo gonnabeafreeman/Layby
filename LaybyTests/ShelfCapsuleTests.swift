@@ -5,9 +5,10 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct ShelfCapsuleTests {
-    private func mouse(_ type: NSEvent.EventType, x: CGFloat, y: CGFloat = 8, window: NSWindow) -> NSEvent {
+    private func mouse(_ type: NSEvent.EventType, x: CGFloat, y: CGFloat = 8, window: NSWindow,
+                       clickCount: Int = 1) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: CGPoint(x: x, y: y), modifierFlags: [], timestamp: 0,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: 1)!
     }
 
     @Test func headerClickCollapsesButDragAndOutsideReleaseDoNot() {
@@ -55,7 +56,7 @@ struct ShelfCapsuleTests {
         handle.updateTrackingAreas()
         let tracking = try #require(handle.trackingAreas.first { ($0.owner as? HeaderDragView) === handle })
         handle.mouseEntered(with: mouse(.leftMouseDown, x: 50, window: window))
-        #expect(grip.transform.m11 == 1)
+        #expect(grip.bounds.width == 80)
         grip.removeAllAnimations() // The pointer has already settled over the grip.
         for _ in 0..<3 {
             handle.preserveHoverDuringLayout {
@@ -64,7 +65,7 @@ struct ShelfCapsuleTests {
                 window.testMouseLocation = CGPoint(x: 250, y: 8)
                 handle.updateTrackingAreas()
                 handle.mouseExited(with: mouse(.leftMouseDown, x: 250, window: window))
-                #expect(grip.transform.m11 == 1)
+                #expect(grip.bounds.width == 80)
                 #expect(grip.opacity == 0.9)
                 #expect(grip.animation(forKey: "hover") == nil)
                 window.testMouseLocation = CGPoint(x: 50, y: 8)
@@ -76,16 +77,117 @@ struct ShelfCapsuleTests {
             let ownedAreas = handle.trackingAreas.filter { ($0.owner as? HeaderDragView) === handle }
             #expect(ownedAreas.count == 1)
             #expect(ownedAreas.first === tracking)
-            #expect(grip.transform.m11 == 1)
+            #expect(grip.bounds.width == 80)
             #expect(grip.animation(forKey: "hover") == nil)
         }
         // A real exit still gets the usual hover feedback.
+        // Let the final resize reconciliation leave its temporary protection
+        // before modelling a genuine pointer exit.
+        try await Task.sleep(for: .milliseconds(100))
         window.testMouseLocation = CGPoint(x: 150, y: 8)
         handle.mouseExited(with: mouse(.leftMouseDown, x: 150, window: window))
-        #expect(grip.transform.m11 == 0.32)
+        #expect(grip.bounds.width == 80 * 0.32)
         #expect(grip.opacity == 0.72)
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             #expect(grip.animation(forKey: "hover") != nil)
+        }
+    }
+
+    @Test func sideTabRetainsFullShelfSizeAndRestoreReturnsItsFrame() throws {
+        _ = NSApplication.shared
+        let shelf = ShelfWindowController(store: ShelfStore())
+        defer { shelf.stop() }
+        shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+        let original = shelf.panel.frame
+        let screen = try #require(shelf.panel.screen ?? NSScreen.main)
+
+        shelf.collapseToNearestSide(animated: false)
+        #expect(shelf.isCollapsed)
+        #expect(shelf.panel.frame.width == original.width)
+        #expect(shelf.panel.frame.height == original.height)
+        let content = shelf.panel.frame.insetBy(dx: ShelfLayout.shadowInset, dy: ShelfLayout.shadowInset)
+        if original.midX < screen.frame.midX {
+            #expect(content.maxX - screen.frame.minX == ShelfLayout.sideRevealWidth)
+        } else {
+            #expect(screen.frame.maxX - content.minX == ShelfLayout.sideRevealWidth)
+        }
+
+        shelf.restore(animated: false, focus: false)
+        #expect(!shelf.isCollapsed)
+        #expect(shelf.panel.frame == original)
+    }
+
+    @Test func sideTabMovesVerticallyThenRevealsAndContinuesDragging() throws {
+        let shelf = ShelfWindowController(store: ShelfStore())
+        defer { shelf.stop() }
+        shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+        let originalSize = shelf.panel.frame.size
+        let screen = try #require(shelf.panel.screen ?? NSScreen.main)
+        let left = shelf.panel.frame.midX < screen.frame.midX
+        shelf.collapseToNearestSide(animated: false)
+        let initial = shelf.panel.frame
+        let start = CGPoint(x: left ? screen.frame.minX + 18 : screen.frame.maxX - 18, y: initial.midY)
+        shelf.handleSidePointer(.leftMouseDown, at: start)
+        let moved = CGPoint(x: start.x, y: start.y + 10)
+        shelf.handleSidePointer(.leftMouseDragged, at: moved)
+        #expect(shelf.isCollapsed)
+        #expect(shelf.panel.frame.minY == initial.minY + 10)
+        let pulled = CGPoint(x: moved.x + (left ? 40 : -40), y: moved.y)
+        shelf.handleSidePointer(.leftMouseDragged, at: pulled)
+        #expect(shelf.isCollapsed)
+        #expect(shelf.panel.frame.minX == initial.minX + (left ? 40 : -40))
+        #expect(shelf.panel.frame.size == originalSize)
+        let content = try #require(shelf.destination.subviews.compactMap { $0 as? NSHostingView<ShelfView> }.first)
+        #expect(content.alphaValue > 0 && content.alphaValue < 1)
+        // Reverse the drag: both window and content blend must retrace the path.
+        shelf.handleSidePointer(.leftMouseDragged, at: moved)
+        #expect(shelf.panel.frame.minX == initial.minX)
+        #expect(content.alphaValue == 0)
+        let distance = originalSize.width - ShelfLayout.shadowInset * 2
+        let continued = CGPoint(x: start.x + (left ? distance : -distance), y: pulled.y - 30)
+        shelf.handleSidePointer(.leftMouseDragged, at: continued)
+        #expect(content.alphaValue == 1)
+        #expect(shelf.panel.frame.minX == initial.minX + (left ? distance : -distance))
+        let revealed = shelf.panel.frame
+        shelf.handleSidePointer(.leftMouseUp, at: continued)
+        #expect(!shelf.isCollapsed)
+        #expect(shelf.panel.frame == revealed)
+    }
+
+    @Test func clicksRespondImmediatelyWithoutSideCapture() {
+        let window = HeaderDragTestWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 16),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        let handle = HeaderDragView()
+        window.contentView = handle
+        var clicks = 0
+        handle.onClick = { clicks += 1 }
+        handle.mouseDown(with: mouse(.leftMouseDown, x: 50, window: window))
+        handle.mouseUp(with: mouse(.leftMouseUp, x: 50, window: window))
+        #expect(clicks == 1)
+        handle.mouseDown(with: mouse(.leftMouseDown, x: 50, window: window, clickCount: 2))
+        handle.mouseUp(with: mouse(.leftMouseUp, x: 50, window: window, clickCount: 2))
+        #expect(clicks == 2)
+    }
+
+    @Test func secondClickDuringToggleReachesHandleWithoutSideCapture() throws {
+        let shelf = ShelfWindowController(store: ShelfStore())
+        defer { shelf.stop() }
+        for startsCollapsed in [false, true] {
+            shelf.hide()
+            shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+            let size = shelf.panel.frame.size
+            if startsCollapsed { shelf.collapse(animated: false) }
+            shelf.dragHandle.onClick?()
+            shelf.panel.contentView?.layoutSubtreeIfNeeded()
+            let handle = shelf.dragHandle
+            let point = shelf.destination.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), from: handle)
+            let hit = shelf.destination.hitTest(shelf.destination.convert(point, to: shelf.destination.superview))
+            #expect(hit === handle)
+            handle.onClick?()
+            #expect(!shelf.panel.permitsSideCollapse)
+            shelf.restore(animated: false, focus: false)
+            #expect(!shelf.isCollapsed)
+            #expect(shelf.panel.frame.size == size)
         }
     }
 

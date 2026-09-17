@@ -6,8 +6,13 @@ import SwiftUI
 @MainActor
 final class ShelfPanel: NSPanel {
     var isDocked = false
+    var permitsSideCollapse = false
+    var isMovingShelf = false
+    var onSidePointer: ((NSEvent.EventType, CGPoint) -> Void)?
+    private var tracksSidePointer = false
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        if permitsSideCollapse || isMovingShelf { return frameRect }
         // Only transparent shadow padding may extend into the menu bar while docked.
         if isDocked, let screen = screen ?? self.screen,
            screen.visibleFrame.contains(frameRect.insetBy(dx: ShelfLayout.shadowInset,
@@ -46,6 +51,14 @@ final class ShelfPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, permitsSideCollapse {
+            tracksSidePointer = true
+        }
+        if tracksSidePointer, [.leftMouseDown, .leftMouseDragged, .leftMouseUp].contains(event.type) {
+            onSidePointer?(event.type, convertPoint(toScreen: event.locationInWindow))
+            if event.type == .leftMouseUp { tracksSidePointer = false }
+            return
+        }
         if event.type == .leftMouseDown { selectionBackground?.handleMouseDown(event) }
         super.sendEvent(event)
     }
@@ -189,6 +202,7 @@ final class ShelfWindowController {
     private var accessibilityObserver: NSObjectProtocol?
     private var shelfHost: NSHostingView<ShelfView>?
     private var capsuleHost: NSHostingView<ShelfCapsuleView>?
+    private var sideTabHost: NSHostingView<ShelfSideTabView>?
     private var shelfSizeConstraints: [NSLayoutConstraint] = []
     private var expandedFrame: CGRect?
     private var collapsedFrame: CGRect?
@@ -198,6 +212,14 @@ final class ShelfWindowController {
     private static let expansionAnimationKey = "layby.expand"
     private static let collapseAnimationKey = "layby.collapse"
     private(set) var isCollapsed = false
+    private var sideCollapsedEdge: ShelfSideEdge?
+    private var isSideCollapsed: Bool { sideCollapsedEdge != nil }
+    private var sidePressPoint: CGPoint?
+    private var sidePressFrame: CGRect?
+    private var sidePressScreen: NSScreen?
+    private var sideRevealProgress: CGFloat = 0
+    private var sideDidDrag = false
+    private var dragScreen: NSScreen?
     var onHide: (() -> Void)?
     var onBeginMoving: (() -> Void)?
     var onCollapse: (() -> Void)?
@@ -227,6 +249,7 @@ final class ShelfWindowController {
         destination = DropDestinationView(store: store)
         surface = ShelfSurfaceView(frame: CGRect(origin: .zero, size: ShelfLayout.windowSize))
         panel.contentView = surface
+        panel.onSidePointer = { [weak self] type, point in self?.handleSidePointer(type, at: point) }
         glass.translatesAutoresizingMaskIntoConstraints = false
         surface.addSubview(glass)
         // The drop surface stays untransformed. Its two content hosts animate
@@ -260,6 +283,7 @@ final class ShelfWindowController {
             guard let self else { return }
             if self.isCollapsed { self.restore() } else { self.collapse() }
         }
+        dragHandle.onDragging = { [weak self] in self?.updateDragScreen() }
         dragHandle.onBeginDragging = { [weak self] in
             self?.beginMoving()
         }
@@ -322,6 +346,21 @@ final class ShelfWindowController {
             capsule.topAnchor.constraint(equalTo: destination.topAnchor),
             capsule.widthAnchor.constraint(equalToConstant: ShelfLayout.capsuleSize.width),
             capsule.heightAnchor.constraint(equalToConstant: ShelfLayout.capsuleSize.height)])
+
+        let sideTab = NSHostingView(rootView: ShelfSideTabView(edge: .right, restore: { [weak self] in self?.restore() }))
+        sideTab.sizingOptions = []
+        sideTab.translatesAutoresizingMaskIntoConstraints = false
+        sideTab.focusRingType = .none
+        sideTab.wantsLayer = true
+        sideTab.isHidden = true
+        destination.addSubview(sideTab, positioned: .below, relativeTo: dragHandle)
+        sideTabHost = sideTab
+        NSLayoutConstraint.activate([
+            sideTab.leadingAnchor.constraint(equalTo: destination.leadingAnchor),
+            sideTab.trailingAnchor.constraint(equalTo: destination.trailingAnchor),
+            sideTab.topAnchor.constraint(equalTo: destination.topAnchor),
+            sideTab.bottomAnchor.constraint(equalTo: destination.bottomAnchor)
+        ])
     }
 
     private func setDockedDisplay(_ id: UInt32?) {
@@ -340,6 +379,9 @@ final class ShelfWindowController {
     }
 
     private func beginMoving() {
+        dragScreen = panel.screen ?? NSScreen.main
+        panel.isMovingShelf = true
+        updateDragScreen()
         finishExpansionAnimation()
         finishCollapseAnimation()
         surface.stopAppearanceAnimation()
@@ -352,7 +394,19 @@ final class ShelfWindowController {
     }
 
     private func endMoving() {
-        defer { detachedDisplayID = nil }
+        updateDragScreen()
+        defer {
+            detachedDisplayID = nil
+            panel.isMovingShelf = false
+            dragScreen = nil
+        }
+        if panel.isVisible, !isCollapsed, let screen = dragScreen ?? panel.screen {
+            let content = panel.frame.insetBy(dx: ShelfLayout.shadowInset, dy: ShelfLayout.shadowInset)
+            if let edge = ShelfGeometry.sideCapture(content: content, screen: screen.frame) {
+                collapseToNearestSide(edge: edge, on: screen)
+                return
+            }
+        }
         guard panel.isVisible,
               let target = dockTargets().first(where: {
                   $0.displayID != detachedDisplayID && $0.captures(panel.frame)
@@ -360,6 +414,15 @@ final class ShelfWindowController {
         setDockedDisplay(target.displayID)
         setFrame(target.frame(for: panel.frame.size), animated: true)
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+
+    private func updateDragScreen() {
+        guard panel.isMovingShelf else { return }
+        // Switch displays only after crossing the seam with the pointer. This
+        // permits normal multi-display dragging without capturing the old edge.
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) {
+            dragScreen = screen
+        }
     }
 
     private func resizeForPresentation() {
@@ -374,7 +437,7 @@ final class ShelfWindowController {
 
     private func setFrame(_ frame: CGRect, animated: Bool) {
         surface.stopAppearanceAnimation()
-        if !isCollapsed {
+        if !isCollapsed || isSideCollapsed {
             glass.expandedSize = CGSize(width: frame.width - ShelfLayout.shadowInset * 2,
                                         height: frame.height - ShelfLayout.shadowInset * 2)
         }
@@ -390,8 +453,10 @@ final class ShelfWindowController {
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = isSideCollapsed ? 0.38 : 0.2
+            context.timingFunction = isSideCollapsed
+                ? CAMediaTimingFunction(controlPoints: 0.16, 0.8, 0.25, 1)
+                : CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
         }
     }
@@ -418,6 +483,125 @@ final class ShelfWindowController {
             finishCollapseAnimation()
         }
         panel.resignKey()
+    }
+
+    /// Tuck the shelf behind whichever vertical screen edge is closest, leaving
+    /// a wide enough tab to restore it without competing with the menu bar dock.
+    func collapseToNearestSide(animated: Bool = true, edge requestedEdge: ShelfSideEdge? = nil, on requestedScreen: NSScreen? = nil) {
+        guard panel.isVisible, !isSideCollapsed, !store.isDraggingOut,
+              !store.isDropTargeted, !destination.isReceiving else { return }
+        finishExpansionAnimation()
+        finishCollapseAnimation()
+        if isCollapsed { restore(animated: false, focus: false) }
+        guard panel.isVisible, !isCollapsed, !store.isDraggingOut, !store.isDropTargeted,
+              !destination.isReceiving,
+              let screen = requestedScreen ?? panel.screen ?? NSScreen.screens.min(by: {
+                  abs($0.frame.midX - panel.frame.midX) < abs($1.frame.midX - panel.frame.midX)
+              }) else { return }
+        services.cancelServicesMenu()
+        quickLook.dismiss()
+        panel.makeFirstResponder(nil)
+        if isDocked { setDockedDisplay(nil) }
+        let edge: ShelfSideEdge = requestedEdge ?? (panel.frame.midX < screen.frame.midX ? .left : .right)
+        let frame = sideCollapsedFrame(from: panel.frame, on: screen, edge: edge)
+        expandedFrame = ShelfGeometry.resizedFrame(panel.frame, size: panel.frame.size,
+                                                   in: screen.visibleFrame.insetBy(dx: 12, dy: 12))
+        collapsedFrame = frame
+        sideCollapsedEdge = edge
+        isCollapsed = true
+        panel.permitsSideCollapse = true
+        destination.preservesBrowsingOnDrop = true
+        onCollapse?()
+        shelfHost?.isHidden = true
+        shelfHost?.alphaValue = 1
+        capsuleHost?.isHidden = true
+        sideTabHost?.rootView = ShelfSideTabView(edge: edge, restore: { [weak self] in self?.restore() })
+        sideTabHost?.isHidden = false
+        sideTabHost?.alphaValue = 1
+        updateCornerRadius()
+        setFrame(frame, animated: animated)
+        panel.resignKey()
+    }
+
+    private func sideCollapsedFrame(from frame: CGRect, on screen: NSScreen, edge: ShelfSideEdge) -> CGRect {
+        var sideFrame = frame
+        switch edge {
+        case .left:
+            // Retain only the shelf's rightmost visual strip inside the display.
+            sideFrame.origin.x = screen.frame.minX - frame.width + ShelfLayout.shadowInset + ShelfLayout.sideRevealWidth
+        case .right:
+            // Retain only the shelf's leftmost visual strip inside the display.
+            sideFrame.origin.x = screen.frame.maxX - ShelfLayout.shadowInset - ShelfLayout.sideRevealWidth
+        }
+        let visible = screen.visibleFrame
+        sideFrame.origin.y = min(max(sideFrame.minY, visible.minY), visible.maxY - sideFrame.height)
+        return sideFrame
+    }
+
+    /// Keep ownership of the same mouse sequence after revealing the full shelf.
+    func handleSidePointer(_ type: NSEvent.EventType, at point: CGPoint) {
+        if type == .leftMouseDown {
+            guard isSideCollapsed else { return }
+            sidePressPoint = point
+            sidePressFrame = panel.frame
+            sidePressScreen = panel.screen ?? NSScreen.main
+            sideRevealProgress = 0
+            sideDidDrag = false
+            return
+        }
+        guard let start = sidePressPoint, let initial = sidePressFrame else { return }
+        if type == .leftMouseUp {
+            if !sideDidDrag { restore() }
+            else if let edge = sideCollapsedEdge, let screen = sidePressScreen {
+                if sideRevealProgress >= 1 {
+                    // Commit the revealed surface exactly where the user pulled
+                    // it. Restoring must not re-anchor it under the header.
+                    expandedFrame = panel.frame
+                    restore(animated: false)
+                } else {
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.2
+                        shelfHost?.animator().alphaValue = 0
+                        sideTabHost?.animator().alphaValue = 1
+                    }
+                    let target = sideCollapsedFrame(from: panel.frame, on: screen, edge: edge)
+                    collapsedFrame = target
+                    setFrame(target, animated: true)
+                }
+            }
+            panel.isMovingShelf = false
+            dragScreen = nil
+            sidePressPoint = nil
+            sidePressFrame = nil
+            sidePressScreen = nil
+            return
+        }
+        guard type == .leftMouseDragged else { return }
+        let dx = point.x - start.x
+        let dy = point.y - start.y
+        guard sideDidDrag || hypot(dx, dy) >= 4 else { return }
+        if !sideDidDrag { sideDidDrag = true; beginMoving() }
+        if let edge = sideCollapsedEdge {
+            // Translate the original full-size window one-to-one with the
+            // pointer, including when the user reverses back toward the edge.
+            let inwardDX = edge == .left ? max(0, dx) : min(0, dx)
+            var frame = initial.offsetBy(dx: inwardDX, dy: dy)
+            if let screen = sidePressScreen {
+                frame.origin.y = min(max(frame.minY, screen.visibleFrame.minY), screen.visibleFrame.maxY - frame.height)
+                let content = frame.insetBy(dx: ShelfLayout.shadowInset, dy: ShelfLayout.shadowInset)
+                let visibleWidth = edge == .left ? content.maxX - screen.frame.minX : screen.frame.maxX - content.minX
+                let fraction = visibleWidth / content.width
+                // Blend the chrome according to distance, not a timed jump.
+                sideRevealProgress = min(1, max(0, (fraction - 0.30) / 0.40))
+                let blend = sideRevealProgress * sideRevealProgress * (3 - 2 * sideRevealProgress)
+                shelfHost?.isHidden = false
+                shelfHost?.alphaValue = blend
+                sideTabHost?.alphaValue = 1 - blend
+            }
+            let movement = frame.minY - panel.frame.minY
+            expandedFrame = expandedFrame?.offsetBy(dx: 0, dy: movement)
+            setFrame(frame, animated: false)
+        }
     }
 
     /// Attract both surfaces toward the same stationary handle, keeping the
@@ -528,8 +712,27 @@ final class ShelfWindowController {
     func restore(animated: Bool = true, focus: Bool = true) {
         finishExpansionAnimation()
         finishCollapseAnimation()
-        guard isCollapsed, !store.isDraggingOut, !store.isDropTargeted, !destination.isReceiving,
-              let screen = panel.screen ?? NSScreen.main else { return }
+        guard isCollapsed, !store.isDraggingOut, !store.isDropTargeted, !destination.isReceiving else { return }
+        if isSideCollapsed {
+            let frame = expandedFrame ?? panel.frame
+            sideCollapsedEdge = nil
+            panel.permitsSideCollapse = false
+            isCollapsed = false
+            destination.preservesBrowsingOnDrop = false
+            expandedFrame = nil
+            collapsedFrame = nil
+            sideTabHost?.isHidden = true
+            sideTabHost?.alphaValue = 1
+            capsuleHost?.isHidden = true
+            shelfHost?.isHidden = false
+            shelfHost?.alphaValue = 1
+            panel.makeFirstResponder(nil)
+            updateCornerRadius()
+            setFrame(frame, animated: animated)
+            if focus { panel.makeKey() }
+            return
+        }
+        guard let screen = panel.screen ?? NSScreen.main else { return }
         let origin = expandedFrame ?? panel.frame
         let parked = collapsedFrame ?? panel.frame
         let moved = origin.offsetBy(dx: panel.frame.minX - parked.minX, dy: panel.frame.maxY - parked.maxY)
@@ -547,6 +750,7 @@ final class ShelfWindowController {
         expandedFrame = nil
         collapsedFrame = nil
         capsuleHost?.isHidden = true
+        sideTabHost?.isHidden = true
         shelfHost?.isHidden = false
         panel.makeFirstResponder(nil)
         updateCornerRadius()
@@ -601,11 +805,12 @@ final class ShelfWindowController {
 
     private func updateCornerRadius() {
         panel.permitsFileServices = !isCollapsed
-        let radius = isCollapsed ? ShelfLayout.capsuleCornerRadius : ShelfLayout.cornerRadius
-        glass.isCollapsed = isCollapsed
+        let radius = isCollapsed && !isSideCollapsed ? ShelfLayout.capsuleCornerRadius : ShelfLayout.cornerRadius
+        glass.isCollapsed = isCollapsed && !isSideCollapsed
         surface.cornerRadius = radius
         destination.layer?.cornerRadius = radius
         if dragHandle.isCollapsed != isCollapsed { dragHandle.isCollapsed = isCollapsed }
+        dragHandle.isHidden = isSideCollapsed
     }
 
     /// Count visible shelf content on each display, including capsules and a
@@ -631,6 +836,10 @@ final class ShelfWindowController {
             if expand { restore(animated: false, focus: focus) }
             // Automatic drag activation must not move or enlarge the user's drop target.
             if isCollapsed {
+                if isSideCollapsed {
+                    panel.orderFrontRegardless()
+                    return
+                }
                 if let screen = panel.screen ?? NSScreen.main {
                     setFrame(ShelfGeometry.resizedFrame(panel.frame, size: ShelfLayout.capsuleWindowSize,
                         in: screen.visibleFrame.insetBy(dx: 12, dy: 12)), animated: false)
@@ -663,6 +872,11 @@ final class ShelfWindowController {
     }
 
     func hide() {
+        panel.isMovingShelf = false
+        dragScreen = nil
+        sidePressPoint = nil
+        sidePressFrame = nil
+        sidePressScreen = nil
         services.cancelServicesMenu()
         finishExpansionAnimation()
         finishCollapseAnimation()
@@ -673,6 +887,8 @@ final class ShelfWindowController {
         detachedDisplayID = nil
         panel.makeFirstResponder(nil)
         isCollapsed = false
+        sideCollapsedEdge = nil
+        panel.permitsSideCollapse = false
         destination.preservesBrowsingOnDrop = false
         expandedFrame = nil
         collapsedFrame = nil
@@ -684,8 +900,10 @@ final class ShelfWindowController {
         dragHandle.stopTrackingDrag()
         shelfHost?.removeFromSuperview()
         capsuleHost?.removeFromSuperview()
+        sideTabHost?.removeFromSuperview()
         shelfHost = nil
         capsuleHost = nil
+        sideTabHost = nil
         shelfSizeConstraints.removeAll()
         onHide?()
     }

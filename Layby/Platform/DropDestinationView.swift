@@ -20,6 +20,9 @@ final class DropDestinationView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // The persistent handle must receive the second click even while file
+        // content is blocked during collapse/expansion animations.
+        if let handle = super.hitTest(point) as? HeaderDragView { return handle }
         if blocksInteraction { return bounds.contains(convert(point, from: superview)) ? self : nil }
         return super.hitTest(point)
     }

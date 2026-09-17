@@ -13,9 +13,10 @@ enum ShelfLayout {
     static let capsuleWindowSize = CGSize(width: capsuleSize.width + shadowInset * 2,
                                          height: capsuleSize.height + shadowInset * 2)
     static let cornerRadius: CGFloat = 26
-    static let headerButtonSize: CGFloat = 30
+    static let headerButtonSize: CGFloat = 25
     static let handleSize = CGSize(width: 100, height: 16)
     static let handleTopInset: CGFloat = 2
+    static let sideRevealWidth: CGFloat = 30
     // The empty-state container begins below the header while the shelf has a
     // smaller bottom inset. Offset its label by half that difference so it is
     // centered in the whole shelf rather than only in the remaining area.
@@ -42,6 +43,7 @@ enum ShelfLayout {
 final class HeaderDragView: NSView {
     var onBeginDragging: (() -> Void)?
     var onEndDragging: (() -> Void)?
+    var onDragging: (() -> Void)?
     var isDocked = false { didSet { updateAccessibilityLabels() } }
     var onClick: (() -> Void)?
     private let grip = CALayer()
@@ -189,9 +191,10 @@ final class HeaderDragView: NSView {
         // Window Server handles the original press, including holds, screen edges and Spaces.
         // performDrag returns immediately and may consume mouseUp, so watch release only while moving.
         dragEndTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.onDragging?()
                 if NSEvent.pressedMouseButtons & 1 == 0 || self.window?.isVisible != true {
                     self.stopTrackingDrag(completed: self.window?.isVisible == true)
                 }
@@ -206,7 +209,8 @@ final class HeaderDragView: NSView {
         let shouldClick = mouseDownEvent != nil && !exceededDragThreshold &&
             bounds.contains(convert(event.locationInWindow, from: nil))
         stopTrackingDrag(completed: true)
-        if shouldClick { onClick?() }
+        guard shouldClick else { return }
+        onClick?()
     }
 
     func stopTrackingDrag(completed: Bool = false) {
