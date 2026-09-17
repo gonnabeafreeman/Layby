@@ -48,6 +48,52 @@ struct ShelfServicesTests {
         #expect(board.propertyList(forType: ShelfServicesController.filenamesType) as? [String] == urls.map(\.path))
     }
 
+    @Test func stackAndFileMenusSeparateActionsIntoThreeGroupsWithIcons() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyServiceMenuGroups-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ShelfStore()
+        store.add(try files(in: root))
+        try await settle(store)
+        let services = ShelfServicesController(store: store, catalog: FileServiceCatalog(entries: []))
+        defer { services.stop(); store.clear() }
+
+        let expectedActions = ["在 Finder 中显示", "快速查看", "隔空投送", "邮件", "信息", "备忘录", "提醒事项"].map(L10n.text)
+        let stackMenu = services.quickActionsMenu(quickLookEnabled: true, quickLookAction: {})
+        #expect(stackMenu.items.count == 11)
+        #expect(stackMenu.items[0].title == L10n.text("用…打开"))
+        #expect(stackMenu.items[1].isSeparatorItem)
+        #expect(stackMenu.items[2...8].map(\.title) == expectedActions)
+        #expect(stackMenu.items[2...8].allSatisfy { $0.image != nil })
+        if #available(macOS 27.0, *) {
+            #expect(stackMenu.items[2...8].allSatisfy { $0.preferredImageVisibility == .visible })
+        }
+        #expect(stackMenu.items[9].isSeparatorItem)
+        #expect(stackMenu.items[10].title == L10n.text("服务"))
+        let openWithApplications = (stackMenu.items[0].submenu?.items ?? []).filter {
+            !$0.isSeparatorItem && $0.title != L10n.text("其他…")
+        }
+        #expect(openWithApplications.allSatisfy { $0.image != nil })
+        if #available(macOS 27.0, *) {
+            #expect(openWithApplications.allSatisfy { $0.preferredImageVisibility == .visible })
+        }
+
+        let context = try #require(services.contextMenu(for: store.items[0].id, preview: { _ in }))
+        #expect(context.items[0].title == L10n.text("用…打开"))
+        #expect(context.items[1].isSeparatorItem)
+        #expect(context.items[2...8].map(\.title) == expectedActions)
+        #expect(context.items[2...8].allSatisfy { $0.image != nil })
+        if #available(macOS 27.0, *) {
+            #expect(context.items[2...8].allSatisfy { $0.preferredImageVisibility == .visible })
+        }
+        #expect(context.items[9].isSeparatorItem)
+        #expect(context.items[10].title == L10n.text("重新检查"))
+        #expect(context.items[11].title == L10n.text("从停放区移除"))
+        #expect(context.items[12].title == L10n.text("清空停放区"))
+        #expect(context.items[13].isSeparatorItem)
+        #expect(context.items[14].title == L10n.text("服务"))
+    }
+
     @Test func rightClickPreservesMultiSelectionAndUsesThePanelRequestor() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyServiceSelection-\(UUID())")

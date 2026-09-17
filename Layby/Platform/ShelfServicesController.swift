@@ -105,34 +105,46 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         // AppKit appending generic text/selection services to this menu.
         menu.allowsContextMenuPlugIns = false
         menu.automaticallyInsertsWritingToolsItems = false
-        for action in quickActionItems(quickLookEnabled: item.state.isReady, quickLookAction: { preview(id) }) {
-            menu.addItem(action)
-        }
+        appendQuickActionGroups(to: menu, quickLookEnabled: item.state.isReady, quickLookAction: { preview(id) })
+        appendShelfManagementActions(to: menu, item: item, id: id)
         menu.addItem(.separator())
         let serviceItem = menu.addItem(withTitle: L10n.text("服务"), action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.allowsContextMenuPlugIns = false
-        if item.isDirectory {
-            submenu.addItem(ShelfMenuAction("打开文件夹", enabled: item.state.isReady) { [store] in store.openFolder(id) })
-        }
-        if item.url != nil {
-            submenu.addItem(ShelfMenuAction("重新检查") { [store] in store.retry(id) })
-        }
-        if !store.isBrowsingFolder {
-            submenu.addItem(ShelfMenuAction("从停放区移除") { [store] in store.remove([id]) })
-        }
-        submenu.addItem(.separator())
-        submenu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
-        submenu.addItem(.separator())
-        appendCatalogServices(to: submenu)
-        serviceItem.submenu = submenu
+        serviceItem.submenu = fileServicesMenu()
         return menu
     }
 
-    /// The fixed quick actions shown ahead of the "Services" category, driven by
-    /// whatever `items` currently resolves to (the full stack, or the selection).
-    /// Actions with a real, launchable application (Finder, Mail, Messages, Notes,
-    /// Reminders) show that app's icon; Open With, Quick Look and AirDrop do not.
+    /// File-specific management remains available from the context menu, but is
+    /// separate from the external Services catalog.
+    private func appendShelfManagementActions(to menu: NSMenu, item: ShelfItem, id: UUID) {
+        if item.isDirectory {
+            menu.addItem(ShelfMenuAction("打开文件夹", enabled: item.state.isReady) { [store] in store.openFolder(id) })
+        }
+        if item.url != nil {
+            menu.addItem(ShelfMenuAction("重新检查") { [store] in store.retry(id) })
+        }
+        if !store.isBrowsingFolder {
+            menu.addItem(ShelfMenuAction("从停放区移除") { [store] in store.remove([id]) })
+        }
+        menu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
+    }
+
+    /// Appends the three shared menu groups: Open With, the file actions, and
+    /// Services. Keeping this in one place makes the stack button and each file's
+    /// context menu follow the same visual hierarchy.
+    private func appendQuickActionGroups(to menu: NSMenu, quickLookEnabled: Bool,
+                                         quickLookAction: @escaping () -> Void) {
+        let actions = quickActionItems(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction)
+        guard let openWith = actions.first else { return }
+        menu.addItem(openWith)
+        menu.addItem(.separator())
+        actions.dropFirst().forEach(menu.addItem)
+        menu.addItem(.separator())
+    }
+
+    /// The fixed file-action group shown after "Open With", driven by whatever
+    /// `items` currently resolves to (the full stack, or the selection). Every
+    /// entry has a leading icon: native application icons when available and a
+    /// recognisable system symbol when macOS does not expose one.
     private func quickActionItems(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> [NSMenuItem] {
         let selection = items
         let urls = sharingURLs(for: selection)
@@ -146,17 +158,24 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         let finder = ShelfMenuAction("在 Finder 中显示", enabled: urls != nil) {
             if let urls { NSWorkspace.shared.activateFileViewerSelecting(urls) }
         }
-        finder.image = Self.menuIcon(Self.finderIcon)
+        // Prefer Finder's real app icon, matching the Finder command itself.
+        // The symbol only covers unusual environments where Finder is unavailable.
+        finder.image = Self.menuIcon(Self.finderIcon) ?? Self.menuSymbol("folder")
+        Self.showMenuImage(finder)
+
+        let quickLook = ShelfMenuAction("快速查看", enabled: quickLookEnabled, action: quickLookAction)
+        quickLook.image = Self.menuSymbol("eye")
+        Self.showMenuImage(quickLook)
 
         return [
             openWithMenuItem(for: urls),
             finder,
-            ShelfMenuAction("快速查看", enabled: quickLookEnabled, action: quickLookAction),
-            sharingAction("隔空投送", service: NSSharingService(named: .sendViaAirDrop), urls: urls, showsIcon: false),
-            sharingAction("邮件", service: NSSharingService(named: .composeEmail), urls: urls),
-            sharingAction("信息", service: NSSharingService(named: .composeMessage), urls: urls),
-            sharingAction("备忘录", service: notes, urls: urls),
-            sharingAction("提醒事项", service: reminders, urls: urls)
+            quickLook,
+            sharingAction("隔空投送", service: NSSharingService(named: .sendViaAirDrop), urls: urls, fallbackSymbol: "airdrop"),
+            sharingAction("邮件", service: NSSharingService(named: .composeEmail), urls: urls, fallbackSymbol: "envelope"),
+            sharingAction("信息", service: NSSharingService(named: .composeMessage), urls: urls, fallbackSymbol: "message"),
+            sharingAction("备忘录", service: notes, urls: urls, fallbackSymbol: "note.text"),
+            sharingAction("提醒事项", service: reminders, urls: urls, fallbackSymbol: "checklist")
         ]
     }
 
@@ -164,10 +183,11 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         services.first { service in keys.contains { service.title.localizedCaseInsensitiveContains($0) } }
     }
 
-    private func sharingAction(_ title: String, service: NSSharingService?, urls: [URL]?, showsIcon: Bool = true) -> NSMenuItem {
+    private func sharingAction(_ title: String, service: NSSharingService?, urls: [URL]?, fallbackSymbol: String) -> NSMenuItem {
         let canPerform = urls.flatMap { u in service.map { $0.canPerform(withItems: u) } } ?? false
         let action = ShelfMenuAction(title, enabled: canPerform) { [weak self] in self?.perform(service, urls: urls) }
-        if showsIcon { action.image = Self.menuIcon(service?.image) }
+        action.image = Self.menuIcon(service?.image) ?? Self.menuSymbol(fallbackSymbol)
+        Self.showMenuImage(action)
         return action
     }
 
@@ -198,6 +218,7 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
                     NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
                 }
                 action.image = Self.menuIcon(NSWorkspace.shared.icon(forFile: app.path))
+                Self.showMenuImage(action)
                 submenu.addItem(action)
             }
             if submenu.numberOfItems > 0 { submenu.addItem(.separator()) }
@@ -241,14 +262,22 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         return icon
     }
 
+    private static func menuSymbol(_ name: String) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
+        return menuIcon(symbol)
+    }
+
+    /// macOS 27 defaults menu-item images to automatic visibility, which normally
+    /// hides them. These file actions intentionally use their leading icons.
+    private static func showMenuImage(_ item: NSMenuItem) {
+        if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
+    }
+
     /// Quick actions plus the "Services" category, used by the stack's dropdown button.
-    private func quickActionsMenu(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> NSMenu {
+    func quickActionsMenu(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> NSMenu {
         let menu = NSMenu()
         menu.allowsContextMenuPlugIns = false
-        for action in quickActionItems(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction) {
-            menu.addItem(action)
-        }
-        menu.addItem(.separator())
+        appendQuickActionGroups(to: menu, quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction)
         let serviceItem = menu.addItem(withTitle: L10n.text("服务"), action: nil, keyEquivalent: "")
         serviceItem.submenu = fileServicesMenu()
         return menu
