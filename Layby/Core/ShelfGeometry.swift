@@ -2,6 +2,13 @@ import Foundation
 import CoreGraphics
 
 enum ShelfGeometry {
+    /// Keep the top center stationary; limit growth equally on both sides when
+    /// close to a display edge instead of shifting the animation's anchor.
+    static func presentationFrame(_ frame: CGRect, size: CGSize, in bounds: CGRect) -> CGRect {
+        let width = min(size.width, max(frame.width, 2 * min(frame.midX - bounds.minX, bounds.maxX - frame.midX)))
+        let height = min(size.height, max(frame.height, frame.maxY - bounds.minY))
+        return CGRect(x: frame.midX - width / 2, y: frame.maxY - height, width: width, height: height)
+    }
     // Require at least 30% of the surface outside the display.
     // Ignore shadows when measuring the hidden area.
     static func sideCapture(content: CGRect, screen: CGRect) -> ShelfSideEdge? {

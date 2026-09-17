@@ -4,7 +4,6 @@ import AppKit
 struct ShelfView: View {
     @Bindable var store: ShelfStore
     let hide: () -> Void
-    let presentationChanged: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -37,13 +36,13 @@ struct ShelfView: View {
                     folderStatus
                 }
                 else if store.items.isEmpty { emptyState }
-                else if store.presentation == .stack { stack }
+                else if store.displayedPresentation == .stack { stack }
                 else { browser }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 12)
             .background {
-                if store.presentation.isExpanded {
+                if store.displayedPresentation.isExpanded {
                     ShelfSelectionBackground(store: store).allowsHitTesting(false)
                 }
             }
@@ -60,8 +59,6 @@ struct ShelfView: View {
                 .accessibilityHidden(true)
         }
         .tint(accent)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: store.presentation)
-        .onChange(of: store.presentation) { _, _ in presentationChanged() }
     }
 
     private var header: some View {
@@ -74,7 +71,7 @@ struct ShelfView: View {
 
     private var headerControls: some View {
         HStack(spacing: 8) {
-            if store.presentation.isExpanded {
+            if store.displayedPresentation.isExpanded {
                 roundButton("chevron.left", label: store.isBrowsingFolder ? "返回上一层" : "返回文件堆叠") { store.goBack() }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.folderBrowser.directory?.displayName ?? countLabel)
@@ -87,7 +84,7 @@ struct ShelfView: View {
                 roundButton("xmark", label: "关闭并清空停放区") { hide() }
             }
             Spacer(minLength: 8)
-            if store.presentation.isExpanded {
+            if store.displayedPresentation.isExpanded {
                 HStack(spacing: 4) {
                     layoutButton("square.grid.2x2", label: "缩略图网格", mode: .grid)
                     layoutButton("list.bullet", label: "文件列表", mode: .list)
@@ -176,7 +173,7 @@ struct ShelfView: View {
     private var browser: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if store.presentation == .grid {
+                if store.displayedPresentation == .grid {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: ShelfLayout.gridMinimumItemWidth),
                                                 spacing: ShelfLayout.gridColumnSpacing)], spacing: 12) {
                         ForEach(store.visibleItems) { item in

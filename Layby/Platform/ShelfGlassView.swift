@@ -69,8 +69,11 @@ final class ShelfGlassView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        expandedEffect.frame = CGRect(x: 0, y: bounds.maxY - expandedSize.height,
-                                      width: expandedSize.width, height: expandedSize.height)
+        // Follow the animated viewport while expanded; assigning the final size
+        // early makes the material jump before the window edges reach it.
+        let size = isCollapsed ? expandedSize : bounds.size
+        expandedEffect.frame = CGRect(x: 0, y: bounds.maxY - size.height,
+                                      width: size.width, height: size.height)
         capsuleEffect.frame = CGRect(x: bounds.midX - ShelfLayout.capsuleSize.width / 2,
                                      y: bounds.maxY - ShelfLayout.capsuleSize.height,
                                      width: ShelfLayout.capsuleSize.width, height: ShelfLayout.capsuleSize.height)

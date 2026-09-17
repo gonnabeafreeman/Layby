@@ -52,6 +52,11 @@ final class ShelfStore {
     var isDraggingOut = false
     var notice: String?
     private(set) var presentation: ShelfPresentation = .stack { didSet { onPreviewChange?() } }
+    /// What ShelfView actually renders. Stays behind `presentation` while the stack and
+    /// the expanded list/grid swap, so old content can fade out and the container can
+    /// finish resizing before the new content is built.
+    private(set) var displayedPresentation: ShelfPresentation = .stack
+    @ObservationIgnored var onPresentationChange: ((Bool) -> Void)?
     let folderBrowser = ShelfFolderBrowser()
     var gridColumnCount = 1
     @ObservationIgnored var onPreviewChange: (() -> Void)?
@@ -123,8 +128,25 @@ final class ShelfStore {
 
     func present(_ presentation: ShelfPresentation) {
         if presentation == .stack { resetFolderBrowsing() }
-        self.presentation = items.isEmpty ? .stack : presentation
+        setPresentation(items.isEmpty ? .stack : presentation, animated: true)
         selection.removeAll()
+    }
+
+    /// Stack and expanded content swap only after the container finishes resizing,
+    /// letting the outgoing content fade in place while the window grows or shrinks.
+    /// Toggling between grid and list (no resize involved) switches immediately.
+    private func setPresentation(_ value: ShelfPresentation, animated: Bool) {
+        guard presentation != value else { return }
+        presentation = value
+        if let onPresentationChange {
+            onPresentationChange(animated)
+        } else {
+            displayedPresentation = value
+        }
+    }
+
+    func finishPresentationChange() {
+        displayedPresentation = presentation
     }
 
     /// Dragging a selected card exports the selection in display order. An
@@ -167,7 +189,7 @@ final class ShelfStore {
         items.removeAll { ids.contains($0.id) }
         selection.subtract(ids)
         if let selectionAnchor, ids.contains(selectionAnchor) { self.selectionAnchor = nil }
-        if items.isEmpty { presentation = .stack }
+        if items.isEmpty { setPresentation(.stack, animated: false) }
     }
 
     func clear() {
@@ -180,7 +202,7 @@ final class ShelfStore {
         selection.removeAll()
         isDropTargeted = false
         notice = nil
-        presentation = .stack
+        setPresentation(.stack, animated: false)
     }
 
     /// Called exclusively by a real drop callback. Owned promise files carry their directory lease.

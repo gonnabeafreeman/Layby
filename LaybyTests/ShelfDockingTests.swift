@@ -132,7 +132,7 @@ struct ShelfDockingTests {
                 #expect(shelf.panel.frame == target.frame(for: shelf.panel.frame.size))
                 let alternate: ShelfPresentation = presentation == .stack ? .list : .stack
                 store.present(alternate)
-                try await Task.sleep(for: .milliseconds(260))
+                try await Task.sleep(for: .seconds(ShelfLayout.presentationResizeDelay + ShelfLayout.presentationResizeDuration + 0.15))
                 #expect(shelf.isDocked)
                 #expect(shelf.panel.frame == target.frame(for: ShelfLayout.windowSize(for: alternate)))
                 // A pull just past the release threshold is still in the capture

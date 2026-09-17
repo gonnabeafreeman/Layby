@@ -7,6 +7,11 @@ enum ShelfLayout {
     static let capsuleSize = CGSize(width: 108, height: 20)
     static let capsuleCornerRadius: CGFloat = 10
     static let collapseDuration: TimeInterval = 0.28
+    /// Duration of the native container resize between the stack and the expanded
+    /// list/grid. Start during the outgoing fade for a quicker, continuous swap.
+    static let presentationResizeDuration: TimeInterval = 0.16
+    static let presentationFadeDuration: TimeInterval = 0.10
+    static let presentationResizeDelay: TimeInterval = 0.04
     /// The transparent margin around the shelf also gives its shadow room to fade naturally.
     static let surfaceShadowOpacity: Float = 0.18
     static let surfaceShadowRadius: CGFloat = 6

@@ -209,6 +209,8 @@ final class ShelfWindowController {
     private var collapseAnimation: Task<Void, Never>?
     private var collapseTarget: CGRect?
     private var expansionAnimation: Task<Void, Never>?
+    private var presentationTransition: Task<Void, Never>?
+    private var presentationRevision = UUID()
     private static let expansionAnimationKey = "layby.expand"
     private static let collapseAnimationKey = "layby.collapse"
     private(set) var isCollapsed = false
@@ -307,6 +309,7 @@ final class ShelfWindowController {
         }
         panel.dismissQuickLook = { [weak self] in self?.quickLook.dismiss() ?? false }
         installShelfContent()
+        store.onPresentationChange = { [weak self] animated in self?.resizeForPresentation(animated: animated) }
         updateAccessibility()
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -314,26 +317,30 @@ final class ShelfWindowController {
             }
     }
 
-    private func installShelfContent() {
+    private func installShelfHost(alpha: CGFloat = 1) {
         guard shelfHost == nil else { return }
         let host = NSHostingView(rootView: ShelfView(store: store,
-            hide: { [weak self] in self?.hide() },
-            presentationChanged: { [weak self] in self?.resizeForPresentation() }))
+            hide: { [weak self] in self?.hide() }))
         host.sizingOptions = []
         host.translatesAutoresizingMaskIntoConstraints = false
         host.focusRingType = .none
         host.wantsLayer = true
+        host.alphaValue = alpha
         destination.focusRingType = .none
         destination.addSubview(host, positioned: .below, relativeTo: dragHandle)
         shelfHost = host
         // Freeze this host's size while collapsed. Keeping the same SwiftUI tree and
         // viewport preserves scroll position, folder navigation and file leases.
-        let size = ShelfLayout.windowSize(for: store.presentation)
+        let size = panel.frame.size
         shelfSizeConstraints = [host.widthAnchor.constraint(equalToConstant: size.width - ShelfLayout.shadowInset * 2),
                                 host.heightAnchor.constraint(equalToConstant: size.height - ShelfLayout.shadowInset * 2)]
         NSLayoutConstraint.activate([host.leadingAnchor.constraint(equalTo: destination.leadingAnchor),
             host.topAnchor.constraint(equalTo: destination.topAnchor)] + shelfSizeConstraints)
+    }
 
+    private func installShelfContent() {
+        installShelfHost()
+        guard capsuleHost == nil else { return }
         let capsule = NSHostingView(rootView: ShelfCapsuleView(store: store))
         capsule.sizingOptions = []
         capsule.translatesAutoresizingMaskIntoConstraints = false
@@ -379,6 +386,7 @@ final class ShelfWindowController {
     }
 
     private func beginMoving() {
+        finishPresentationTransition()
         dragScreen = panel.screen ?? NSScreen.main
         panel.isMovingShelf = true
         updateDragScreen()
@@ -425,17 +433,92 @@ final class ShelfWindowController {
         }
     }
 
-    private func resizeForPresentation() {
+    private func resizeForPresentation(animated: Bool) {
+        presentationTransition?.cancel()
+        presentationTransition = nil
+        let revision = UUID()
+        presentationRevision = revision
         finishExpansionAnimation()
-        guard !isCollapsed, panel.isVisible, let screen = panel.screen ?? NSScreen.main else { return }
+        guard !isCollapsed, panel.isVisible, let screen = panel.screen ?? NSScreen.main else {
+            store.finishPresentationChange()
+            destination.blocksInteraction = false
+            return
+        }
         let frame = dockedFrame(for: ShelfLayout.windowSize(for: store.presentation))
-            ?? ShelfGeometry.resizedFrame(panel.frame, size: ShelfLayout.windowSize(for: store.presentation),
+            ?? ShelfGeometry.presentationFrame(panel.frame, size: ShelfLayout.windowSize(for: store.presentation),
                                                in: screen.visibleFrame.insetBy(dx: 12, dy: 12))
-        guard frame != panel.frame else { return }
-        setFrame(frame, animated: true)
+        guard frame != panel.frame, animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            setFrame(frame, animated: false)
+            commitPresentationContent(animated: false, revision: revision)
+            return
+        }
+        destination.blocksInteraction = true
+        // Fade the entire native host, including embedded AppKit file views.
+        // SwiftUI must not animate the branch replacement and opacity together.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = ShelfLayout.presentationFadeDuration
+            shelfHost?.animator().alphaValue = 0
+        }
+        presentationTransition = Task { [weak self] in
+            // Give the fade a brief head start, then overlap the container resize.
+            await Task.yield()
+            try? await Task.sleep(for: .seconds(ShelfLayout.presentationResizeDelay))
+            guard !Task.isCancelled, let self, self.presentationRevision == revision else { return }
+            self.setFrame(frame, animated: true) { [weak self] in
+                guard let self, self.presentationRevision == revision else { return }
+                self.commitPresentationContent(animated: true, revision: revision)
+            }
+        }
     }
 
-    private func setFrame(_ frame: CGRect, animated: Bool) {
+    private func commitPresentationContent(animated: Bool, revision: UUID) {
+        // Detach the outgoing native subtree before changing the rendered mode.
+        // No stale backing layer can be revealed by the incoming fade.
+        shelfHost?.isHidden = true
+        shelfHost?.removeFromSuperview()
+        shelfHost = nil
+        NSLayoutConstraint.deactivate(shelfSizeConstraints)
+        shelfSizeConstraints.removeAll()
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            store.finishPresentationChange()
+            installShelfHost(alpha: animated ? 0 : 1)
+            surface.layoutSubtreeIfNeeded()
+            shelfHost?.layoutSubtreeIfNeeded()
+            shelfHost?.displayIfNeeded()
+        }
+        guard animated, let host = shelfHost else {
+            destination.blocksInteraction = false
+            presentationTransition = nil
+            return
+        }
+        // Commit the newly laid-out, transparent host before beginning its fade.
+        CATransaction.flush()
+        DispatchQueue.main.async { [weak self, weak host] in
+            guard let self, let host, self.presentationRevision == revision, self.shelfHost === host else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = ShelfLayout.presentationFadeDuration
+                host.animator().alphaValue = 1
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.presentationRevision == revision else { return }
+                    self.destination.blocksInteraction = false
+                    self.presentationTransition = nil
+                }
+            }
+        }
+    }
+
+    private func finishPresentationTransition() {
+        guard presentationTransition != nil else { return }
+        presentationTransition?.cancel()
+        presentationTransition = nil
+        presentationRevision = UUID()
+        resizeForPresentation(animated: false)
+    }
+
+    private func setFrame(_ frame: CGRect, animated: Bool, completion: (() -> Void)? = nil) {
         surface.stopAppearanceAnimation()
         if !isCollapsed || isSideCollapsed {
             glass.expandedSize = CGSize(width: frame.width - ShelfLayout.shadowInset * 2,
@@ -450,18 +533,20 @@ final class ShelfWindowController {
                 panel.setFrame(frame, display: true)
                 surface.layoutSubtreeIfNeeded()
             }
+            completion?()
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = isSideCollapsed ? 0.38 : 0.2
+            context.duration = isSideCollapsed ? 0.38 : ShelfLayout.presentationResizeDuration
             context.timingFunction = isSideCollapsed
                 ? CAMediaTimingFunction(controlPoints: 0.16, 0.8, 0.25, 1)
                 : CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(frame, display: true)
-        }
+        } completionHandler: { completion?() }
     }
 
     func collapse(animated: Bool = true) {
+        finishPresentationTransition()
         finishExpansionAnimation()
         guard panel.isVisible, !isCollapsed, !store.isDraggingOut, !store.isDropTargeted,
               !destination.isReceiving, let screen = panel.screen ?? NSScreen.main else { return }
@@ -488,6 +573,7 @@ final class ShelfWindowController {
     /// Tuck the shelf behind whichever vertical screen edge is closest, leaving
     /// a wide enough tab to restore it without competing with the menu bar dock.
     func collapseToNearestSide(animated: Bool = true, edge requestedEdge: ShelfSideEdge? = nil, on requestedScreen: NSScreen? = nil) {
+        finishPresentationTransition()
         guard panel.isVisible, !isSideCollapsed, !store.isDraggingOut,
               !store.isDropTargeted, !destination.isReceiving else { return }
         finishExpansionAnimation()
@@ -821,6 +907,7 @@ final class ShelfWindowController {
     }
 
     func show(near point: CGPoint, focus: Bool, notchScreen: NSScreen? = nil, expand: Bool = true) {
+        finishPresentationTransition()
         finishExpansionAnimation()
         finishCollapseAnimation()
         if dockedFrame(for: panel.frame.size) != nil {
@@ -872,6 +959,11 @@ final class ShelfWindowController {
     }
 
     func hide() {
+        presentationTransition?.cancel()
+        presentationTransition = nil
+        presentationRevision = UUID()
+        store.finishPresentationChange()
+        destination.blocksInteraction = false
         panel.isMovingShelf = false
         dragScreen = nil
         sidePressPoint = nil
@@ -916,6 +1008,7 @@ final class ShelfWindowController {
 
     private func updateAccessibility() {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            finishPresentationTransition()
             surface.stopAppearanceAnimation()
             finishExpansionAnimation()
             finishCollapseAnimation()
