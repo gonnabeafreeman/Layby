@@ -7,12 +7,21 @@ enum ShelfLayout {
     static let capsuleSize = CGSize(width: 108, height: 20)
     static let capsuleCornerRadius: CGFloat = 10
     static let collapseDuration: TimeInterval = 0.28
+    /// The transparent margin around the shelf also gives its shadow room to fade naturally.
+    static let surfaceShadowOpacity: Float = 0.18
+    static let surfaceShadowRadius: CGFloat = 6
     static let capsuleWindowSize = CGSize(width: capsuleSize.width + shadowInset * 2,
                                          height: capsuleSize.height + shadowInset * 2)
     static let cornerRadius: CGFloat = 26
     static let headerButtonSize: CGFloat = 30
     static let handleSize = CGSize(width: 100, height: 16)
     static let handleTopInset: CGFloat = 2
+    // The empty-state container begins below the header while the shelf has a
+    // smaller bottom inset. Offset its label by half that difference so it is
+    // centered in the whole shelf rather than only in the remaining area.
+    static var emptyStateVerticalOffset: CGFloat {
+        (headerButtonInset + headerButtonSize + 8 - 12) / 2
+    }
     static let gridMinimumItemWidth: CGFloat = 128
     static let gridColumnSpacing: CGFloat = 10
     static func gridColumns(for width: CGFloat) -> Int {
@@ -49,8 +58,9 @@ final class HeaderDragView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        grip.bounds = CGRect(x: 0, y: 0, width: 80, height: 3)
-        grip.cornerRadius = 1.5
+        grip.bounds = CGRect(x: 0, y: 0, width: 80, height: 4)
+        // A radius equal to half the height makes each end a true semicircle.
+        grip.cornerRadius = 2
         layer?.addSublayer(grip)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -221,7 +231,7 @@ final class HeaderDragView: NSView {
 
     private func updateGrip(animated: Bool) {
         let expanded = isHovered || isDraggingWindow
-        let scale: CGFloat = expanded ? 1 : 0.32
+        let width: CGFloat = expanded ? 80 : 80 * 0.32
         let opacity: Float = isDraggingWindow ? 1 : (expanded ? 0.9 : 0.72)
         // A tracking refresh must not cancel or restart an unchanged hover.
         CATransaction.begin()
@@ -230,19 +240,19 @@ final class HeaderDragView: NSView {
         // Keep the idle grip legible too: charcoal on light glass, pale gray on dark glass.
         grip.backgroundColor = NSColor(white: isDark ? 0.9 : 0.22, alpha: 1).cgColor
         CATransaction.commit()
-        guard grip.transform.m11 != scale || grip.opacity != opacity else { return }
-        let currentScale = grip.presentation()?.value(forKeyPath: "transform.scale.x") ?? grip.value(forKeyPath: "transform.scale.x")
+        guard grip.bounds.width != width || grip.opacity != opacity else { return }
+        let currentWidth = grip.presentation()?.bounds.width ?? grip.bounds.width
         let currentOpacity = grip.presentation()?.opacity ?? grip.opacity
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        grip.transform = CATransform3DMakeScale(scale, 1, 1)
+        grip.bounds.size.width = width
         grip.opacity = opacity
         CATransaction.commit()
-        grip.removeAllAnimations()
+        grip.removeAnimation(forKey: "hover")
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let stretch = CABasicAnimation(keyPath: "transform.scale.x")
-        stretch.fromValue = currentScale
-        stretch.toValue = scale
+        let stretch = CABasicAnimation(keyPath: "bounds.size.width")
+        stretch.fromValue = currentWidth
+        stretch.toValue = width
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = currentOpacity
         fade.toValue = opacity

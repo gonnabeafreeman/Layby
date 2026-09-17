@@ -31,11 +31,13 @@ final class ShelfGlassView: NSView {
         layer?.cornerRadius = ShelfLayout.cornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
+        layer?.borderWidth = 1
         focusRingType = .none
         addSubview(expandedEffect)
         addSubview(capsuleEffect)
         capsuleEffect.isHidden = true
         capsuleContent.onAppearanceChange = { [weak self] _ in self?.refreshContentAppearance() }
+        updateBorderAppearance()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -83,6 +85,7 @@ final class ShelfGlassView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        updateBorderAppearance()
         refreshContentAppearance()
     }
 
@@ -104,5 +107,14 @@ final class ShelfGlassView: NSView {
         expandedEffect.appearance = contentAppearance
         expandedContent.appearance = contentAppearance
         onContentAppearanceChange?(contentAppearance)
+    }
+
+    /// A restrained adaptive outline separates translucent glass from similar
+    /// backdrops, while the surface view provides the outer elevation.
+    private func updateBorderAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            layer?.borderColor = NSColor(white: isDark ? 1 : 0, alpha: isDark ? 0.28 : 0.18).cgColor
+        }
     }
 }

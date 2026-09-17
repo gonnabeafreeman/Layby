@@ -121,6 +121,7 @@ struct ShelfView: View {
         Text(L10n.text(store.isDropTargeted ? "松手，放在这里" : "拖入文件或文件夹"))
             .font(.system(size: 13)).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: -ShelfLayout.emptyStateVerticalOffset)
     }
 
     private var folderStatus: some View {

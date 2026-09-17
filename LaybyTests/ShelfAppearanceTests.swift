@@ -82,6 +82,27 @@ struct ShelfAppearanceTests {
         fill.updateBackground(reduceTransparency: false)
         #expect(fill.layer?.backgroundColor?.alpha == 0)
     }
+
+    @Test func glassSurfaceUsesAdaptiveOutlineAndCenteredShadow() throws {
+        let shelf = ShelfWindowController(store: ShelfStore())
+        defer { shelf.stop() }
+        let surface = try #require(shelf.panel.contentView as? ShelfSurfaceView)
+        let glass = try #require(surface.subviews.compactMap { $0 as? ShelfGlassView }.first)
+        surface.layoutSubtreeIfNeeded()
+
+        #expect(surface.layer?.shadowOffset == .zero)
+        #expect(surface.layer?.shadowRadius == ShelfLayout.surfaceShadowRadius)
+        #expect(surface.layer?.shadowOpacity == ShelfLayout.surfaceShadowOpacity)
+        #expect(glass.layer?.borderWidth == 1)
+
+        glass.appearance = NSAppearance(named: .aqua)
+        glass.viewDidChangeEffectiveAppearance()
+        let lightOutline = try #require(glass.layer?.borderColor)
+        glass.appearance = NSAppearance(named: .darkAqua)
+        glass.viewDidChangeEffectiveAppearance()
+        let darkOutline = try #require(glass.layer?.borderColor)
+        #expect(lightOutline != darkOutline)
+    }
 }
 
 private struct AppearanceProbe: View {

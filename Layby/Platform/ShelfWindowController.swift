@@ -106,10 +106,7 @@ final class ShelfSurfaceView: NSView {
         wantsLayer = true
         focusRingType = .none
         layer?.backgroundColor = NSColor.clear.cgColor
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.24
-        layer?.shadowRadius = 10
-        layer?.shadowOffset = CGSize(width: 0, height: -3)
+        applyElevation()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -117,9 +114,19 @@ final class ShelfSurfaceView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        applyElevation()
         layer?.shadowPath = CGPath(roundedRect: bounds.insetBy(dx: ShelfLayout.shadowInset, dy: ShelfLayout.shadowInset),
                                   cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
         CATransaction.commit()
+    }
+
+    private func applyElevation() {
+        layer?.shadowColor = NSColor.black.cgColor
+        // A centered shadow creates depth on every edge instead of making the
+        // shelf look like it is lit only from above.
+        layer?.shadowOpacity = ShelfLayout.surfaceShadowOpacity
+        layer?.shadowRadius = ShelfLayout.surfaceShadowRadius
+        layer?.shadowOffset = .zero
     }
 
     func animateAppearance(reduceMotion: Bool) {
