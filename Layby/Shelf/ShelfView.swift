@@ -310,23 +310,24 @@ private struct ShelfSolidButtonContent<Label: View>: View {
 
 private struct FileStackContent: View {
     let items: [ShelfItem]
-    private let angles: [Double] = [-16, 12, -9, 6, 0]
-    private let offsets: [CGFloat] = [-18, 17, -10, 9, 0]
+    private let angles: [Double] = [-12, 10, -8, 5, 0]
+    private let offsets: [CGFloat] = [-10, 9, -7, 5, 0]
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     let depth = index + 5 - items.count
-                    Image(nsImage: item.icon).resizable().scaledToFit()
-                        .frame(width: 128, height: 158)
-                        .shadow(color: .black.opacity(0.22), radius: 5, y: 3)
+                    Image(nsImage: item.icon).resizable().interpolation(.high).scaledToFit()
+                        .frame(width: 144, height: 144)
+                        .fixedSize()
                         .rotationEffect(.degrees(angles[depth]))
-                        .offset(x: offsets[depth], y: CGFloat(items.count - index - 1) * -2)
+                        .offset(x: offsets[depth], y: CGFloat(items.count - index - 1) * 2)
                 }
             }
-            .frame(width: 220, height: 195)
-            .scaleEffect(min(1, max(0, min(geometry.size.width / 220, geometry.size.height / 195))))
+            .frame(width: 170, height: 180)
+            .fixedSize()
+            .scaleEffect(min(1, max(0, min(geometry.size.width / 170, geometry.size.height / 180))))
             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }
         .accessibilityHidden(true)
@@ -350,7 +351,6 @@ private struct FileTileContent: View {
         VStack(spacing: 7) {
             Image(nsImage: item.icon).resizable().scaledToFit()
                 .frame(width: 104, height: 88)
-                .shadow(color: .black.opacity(0.13), radius: 3, y: 2)
                 .overlay(alignment: .bottomTrailing) { FileStatus(item: item) }
             Text(item.displayName).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
             Text(item.displaySubtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)

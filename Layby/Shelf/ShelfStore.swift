@@ -275,8 +275,11 @@ final class ShelfStore {
     func requestThumbnail(_ id: UUID) {
         guard thumbnails[id] == nil, let item = (items + folderBrowser.items).first(where: { $0.id == id }),
               item.state.isReady, !item.isDirectory, let lease = item.lease else { return }
-        let request = QLThumbnailGenerator.Request(fileAt: lease.url, size: CGSize(width: 160, height: 180),
-                                                  scale: 2, representationTypes: .thumbnail)
+        let request = QLThumbnailGenerator.Request(fileAt: lease.url, size: CGSize(width: 256, height: 256),
+                                                  scale: 2, representationTypes: .all)
+        // Ask the system for a file icon, including its native document shape,
+        // transparent margins and decorations, rather than a raw content preview.
+        request.iconMode = true
         thumbnails[id] = request
         let expected = generation
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self, lease] representation, _ in
