@@ -79,9 +79,12 @@ struct FileServiceCatalogTests {
         #expect(store.notice?.contains(entry.title) == true)
         store.selection = Set(store.items.map(\.id))
         let context = try #require(services.contextMenu(for: store.items[0].id, preview: { _ in }))
+        // The catalog now lives in the "Services" category, past the shared
+        // quick actions (Finder, Quick Look, AirDrop, Mail, Messages) and the
+        // context-specific management actions (retry, remove, clear).
         let submenu = try #require(context.items.last?.submenu)
-        #expect(submenu.items.map(\.title) == [entry.title])
-        submenu.performActionForItem(at: 0)
+        #expect(submenu.items.last?.title == entry.title)
+        submenu.performActionForItem(at: submenu.items.count - 1)
         #expect(invoked.count == 2 && invoked.last?.1 == urls.map(\.path))
     }
 }

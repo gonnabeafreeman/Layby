@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Supplies the shelf's current files to the system-managed Services menu.
 @MainActor
@@ -100,24 +101,153 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         guard let item = store.visibleItems.first(where: { $0.id == id }) else { return nil }
         prepareContext(for: id)
         let menu = NSMenu()
-        // Show the same explicit file-service list as the stack button, instead
-        // of AppKit appending generic text/selection services to this menu.
+        // Lead with the same quick actions as the stack button, instead of
+        // AppKit appending generic text/selection services to this menu.
         menu.allowsContextMenuPlugIns = false
         menu.automaticallyInsertsWritingToolsItems = false
-        if item.isDirectory {
-            menu.addItem(ShelfMenuAction("打开文件夹", enabled: item.state.isReady) { [store] in store.openFolder(id) })
+        for action in quickActionItems(quickLookEnabled: item.state.isReady, quickLookAction: { preview(id) }) {
+            menu.addItem(action)
         }
-        menu.addItem(ShelfMenuAction("快速查看", enabled: item.state.isReady) { preview(id) })
         menu.addItem(.separator())
-        if let url = item.url {
-            menu.addItem(ShelfMenuAction("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) })
-            menu.addItem(ShelfMenuAction("重新检查") { [store] in store.retry(id) })
+        let serviceItem = menu.addItem(withTitle: L10n.text("服务"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.allowsContextMenuPlugIns = false
+        if item.isDirectory {
+            submenu.addItem(ShelfMenuAction("打开文件夹", enabled: item.state.isReady) { [store] in store.openFolder(id) })
+        }
+        if item.url != nil {
+            submenu.addItem(ShelfMenuAction("重新检查") { [store] in store.retry(id) })
         }
         if !store.isBrowsingFolder {
-            menu.addItem(ShelfMenuAction("从停放区移除") { [store] in store.remove([id]) })
+            submenu.addItem(ShelfMenuAction("从停放区移除") { [store] in store.remove([id]) })
         }
-        menu.addItem(.separator())
-        menu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
+        submenu.addItem(.separator())
+        submenu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
+        submenu.addItem(.separator())
+        appendCatalogServices(to: submenu)
+        serviceItem.submenu = submenu
+        return menu
+    }
+
+    /// The fixed quick actions shown ahead of the "Services" category, driven by
+    /// whatever `items` currently resolves to (the full stack, or the selection).
+    /// Actions with a real, launchable application (Finder, Mail, Messages, Notes,
+    /// Reminders) show that app's icon; Open With, Quick Look and AirDrop do not.
+    private func quickActionItems(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> [NSMenuItem] {
+        let selection = items
+        let urls = sharingURLs(for: selection)
+        // No named NSSharingService exists for Notes/Reminders; discovering the
+        // registered share extensions is still the only way to reach them and
+        // get their icon, even though the API itself is soft-deprecated.
+        let discovered = urls.map(NSSharingService.sharingServices(forItems:)) ?? []
+        let notes = discoveredService(titleContains: ["Notes", "备忘录"], among: discovered)
+        let reminders = discoveredService(titleContains: ["Reminders", "提醒事项"], among: discovered)
+
+        let finder = ShelfMenuAction("在 Finder 中显示", enabled: urls != nil) {
+            if let urls { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+        }
+        finder.image = Self.menuIcon(Self.finderIcon)
+
+        return [
+            openWithMenuItem(for: urls),
+            finder,
+            ShelfMenuAction("快速查看", enabled: quickLookEnabled, action: quickLookAction),
+            sharingAction("隔空投送", service: NSSharingService(named: .sendViaAirDrop), urls: urls, showsIcon: false),
+            sharingAction("邮件", service: NSSharingService(named: .composeEmail), urls: urls),
+            sharingAction("信息", service: NSSharingService(named: .composeMessage), urls: urls),
+            sharingAction("备忘录", service: notes, urls: urls),
+            sharingAction("提醒事项", service: reminders, urls: urls)
+        ]
+    }
+
+    private func discoveredService(titleContains keys: [String], among services: [NSSharingService]) -> NSSharingService? {
+        services.first { service in keys.contains { service.title.localizedCaseInsensitiveContains($0) } }
+    }
+
+    private func sharingAction(_ title: String, service: NSSharingService?, urls: [URL]?, showsIcon: Bool = true) -> NSMenuItem {
+        let canPerform = urls.flatMap { u in service.map { $0.canPerform(withItems: u) } } ?? false
+        let action = ShelfMenuAction(title, enabled: canPerform) { [weak self] in self?.perform(service, urls: urls) }
+        if showsIcon { action.image = Self.menuIcon(service?.image) }
+        return action
+    }
+
+    private func sharingURLs(for selection: [ShelfItem]) -> [URL]? {
+        guard !selection.isEmpty, selection.allSatisfy({ $0.state.isReady && $0.url != nil }) else { return nil }
+        let urls = selection.compactMap(\.url)
+        return urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) ? urls : nil
+    }
+
+    private func perform(_ service: NSSharingService?, urls: [URL]?) {
+        guard let urls, let service, service.canPerform(withItems: urls) else {
+            store.notice = "当前无法使用该功能"
+            return
+        }
+        service.perform(withItems: urls)
+    }
+
+    /// "Open With…" leads the list, mirroring Finder: a submenu of every capable
+    /// application (default first) plus "Other…" to browse for one. It carries no
+    /// icon of its own; each listed application shows its own icon.
+    private func openWithMenuItem(for urls: [URL]?) -> NSMenuItem {
+        let item = NSMenuItem(title: L10n.text("用…打开"), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.allowsContextMenuPlugIns = false
+        if let urls, !urls.isEmpty {
+            for app in openWithApplications(for: urls) {
+                let action = ShelfMenuAction(FileManager.default.displayName(atPath: app.path)) {
+                    NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                }
+                action.image = Self.menuIcon(NSWorkspace.shared.icon(forFile: app.path))
+                submenu.addItem(action)
+            }
+            if submenu.numberOfItems > 0 { submenu.addItem(.separator()) }
+            submenu.addItem(ShelfMenuAction("其他…") { [weak self] in self?.chooseOtherApplication(for: urls) })
+        }
+        item.isEnabled = urls != nil
+        item.submenu = submenu
+        return item
+    }
+
+    /// Applications capable of opening every selected file, default application first.
+    private func openWithApplications(for urls: [URL]) -> [URL] {
+        guard let first = urls.first else { return [] }
+        var candidates = Set(NSWorkspace.shared.urlsForApplications(toOpen: first).map(\.standardizedFileURL))
+        for url in urls.dropFirst() where !candidates.isEmpty {
+            candidates.formIntersection(Set(NSWorkspace.shared.urlsForApplications(toOpen: url).map(\.standardizedFileURL)))
+        }
+        let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: first)?.standardizedFileURL
+        return candidates.sorted { a, b in
+            if a == defaultApp { return true }
+            if b == defaultApp { return false }
+            return FileManager.default.displayName(atPath: a.path).localizedStandardCompare(FileManager.default.displayName(atPath: b.path)) == .orderedAscending
+        }
+    }
+
+    private func chooseOtherApplication(for urls: [URL]) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.prompt = L10n.text("打开")
+        guard panel.runModal() == .OK, let app = panel.url else { return }
+        NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+    }
+
+    private static let finderIcon: NSImage? = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.finder")
+        .map { NSWorkspace.shared.icon(forFile: $0.path) }
+
+    private static func menuIcon(_ image: NSImage?) -> NSImage? {
+        guard let image, let icon = image.copy() as? NSImage else { return nil }
+        icon.size = NSSize(width: 16, height: 16)
+        return icon
+    }
+
+    /// Quick actions plus the "Services" category, used by the stack's dropdown button.
+    private func quickActionsMenu(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> NSMenu {
+        let menu = NSMenu()
+        menu.allowsContextMenuPlugIns = false
+        for action in quickActionItems(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction) {
+            menu.addItem(action)
+        }
         menu.addItem(.separator())
         let serviceItem = menu.addItem(withTitle: L10n.text("服务"), action: nil, keyEquivalent: "")
         serviceItem.submenu = fileServicesMenu()
@@ -161,7 +291,8 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
             self.pendingServicesView = nil
             guard NSApp.isActive, let view, let window, view.window === window,
                   window.isKeyWindow, self.canShowAllServices(from: view) else { return }
-            let menu = self.fileServicesMenu()
+            let quickLook = (window as? ShelfPanel)?.quickLook
+            let menu = self.quickActionsMenu(quickLookEnabled: !self.items.isEmpty) { _ = quickLook?.previewAll() }
             self.trackingServicesMenu = menu
             defer { self.trackingServicesMenu = nil }
             let point = CGPoint(x: 0, y: view.isFlipped ? view.bounds.maxY : view.bounds.minY)
@@ -182,9 +313,15 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
     }
 
     func fileServicesMenu() -> NSMenu {
-        catalog.refreshIfNeeded()
         let menu = NSMenu(title: L10n.text("服务"))
         menu.allowsContextMenuPlugIns = false
+        appendCatalogServices(to: menu)
+        return menu
+    }
+
+    /// Appends the dynamic, third-party Services-menu catalog to an existing menu.
+    private func appendCatalogServices(to menu: NSMenu) {
+        catalog.refreshIfNeeded()
         let selection = items
         let services = catalog.entries.filter { $0.accepts(selection) }
         let names = Dictionary(grouping: services, by: \.title)
@@ -199,7 +336,6 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
             menu.addItem(withTitle: L10n.text(catalog.isLoaded ? "没有适用的文件服务" : "正在读取文件服务…"),
                          action: nil, keyEquivalent: "")
         }
-        return menu
     }
 
     /// Invoke the registered service on a private pasteboard; do not launch an
@@ -268,7 +404,7 @@ private struct ServicesButtonContent: View {
         }
         .buttonStyle(ShelfSolidButtonStyle())
         .disabled(!enabled)
-        .help(L10n.text("对全部文件使用服务"))
-        .accessibilityLabel(L10n.text("对全部文件使用服务"))
+        .help(L10n.text("对全部文件执行更多操作"))
+        .accessibilityLabel(L10n.text("对全部文件执行更多操作"))
     }
 }

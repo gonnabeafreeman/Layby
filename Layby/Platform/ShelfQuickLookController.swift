@@ -24,6 +24,7 @@ final class ShelfQuickLookController: NSObject, @MainActor QLPreviewPanelDataSou
     private weak var controlledPanel: QLPreviewPanel?
     private var items: [ShelfPreviewItem] = []
     private var keyMonitor: Any?
+    private var previewsAllItems = false
     var hasItems: Bool { !items.isEmpty }
 
     init(store: ShelfStore, shelfPanel: ShelfPanel) {
@@ -40,17 +41,26 @@ final class ShelfQuickLookController: NSObject, @MainActor QLPreviewPanelDataSou
 
     @discardableResult func toggle() -> Bool {
         if dismiss() { return true }
-        return show()
+        previewsAllItems = false
+        return show(store.previewItems.compactMap(ShelfPreviewItem.init))
     }
 
     func preview(_ id: UUID) {
         guard store.presentation.isExpanded, store.visibleReadyItems.contains(where: { $0.id == id }) else { return }
         store.select(id, extending: false)
-        _ = show()
+        previewsAllItems = false
+        _ = show(store.previewItems.compactMap(ShelfPreviewItem.init))
     }
 
-    private func show() -> Bool {
-        let candidates = store.previewItems.compactMap(ShelfPreviewItem.init)
+    /// Quick Look every item currently held, regardless of selection. Used by
+    /// the stack's quick-actions menu, where individual items are not selectable.
+    @discardableResult func previewAll() -> Bool {
+        if dismiss() { return true }
+        previewsAllItems = true
+        return show(store.items.compactMap(ShelfPreviewItem.init))
+    }
+
+    private func show(_ candidates: [ShelfPreviewItem]) -> Bool {
         guard !candidates.isEmpty, let shelfPanel else { return false }
         items = candidates
         // The shelf is a nonactivating utility window; make it the key responder
@@ -116,13 +126,14 @@ final class ShelfQuickLookController: NSObject, @MainActor QLPreviewPanelDataSou
 
     private func finishSession() {
         items.removeAll()
+        previewsAllItems = false
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
     }
 
     private func selectionDidChange() {
         guard hasItems else { return }
-        let candidates = store.previewItems.compactMap(ShelfPreviewItem.init)
+        let candidates = (previewsAllItems ? store.items : store.previewItems).compactMap(ShelfPreviewItem.init)
         guard !candidates.isEmpty else { dismiss(); return }
         guard let panel = controlledPanel else { return }
         let currentID = (panel.currentPreviewItem as? ShelfPreviewItem)?.id
