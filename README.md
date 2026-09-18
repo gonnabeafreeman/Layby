@@ -14,11 +14,12 @@ Layby is a macOS file shelf built with Swift and SwiftUI / AppKit. Drag files on
 
 - **Quick activation**: Shake the mouse while dragging files, hold a modifier key, or drag to the notch area. A global keyboard shortcut and a menu bar entry are also available.
 - **File collection**: Accept files, folders, and files provided by other apps through File Promises. Drag the whole stack or expand it to select individual files.
-- **Views and selection**: Switch between a thumbnail grid and a file list, with multiple selection, keyboard navigation, copying, and Reveal in Finder.
+- **Views and selection**: Switch between a thumbnail grid and a file list, with multiple selection, keyboard navigation, copying, and Reveal in Finder. Files dragged out onto Finder land arranged by name instead of piled on top of each other.
 - **Folder browsing**: Double-click a folder to browse its contents, navigate back through each level, and preview, copy, or drag files directly.
 - **Quick Look**: Select a file and press Space to preview it with native macOS Quick Look.
-- **Collapse and dock**: Collapse the shelf into a mini capsule that still accepts files, or drag it to the top center of any display to dock it.
-- **File services**: Send files to macOS Services provided by installed apps using the context menu or the services button on the stack. Available services depend on your installed apps and system permissions.
+- **Collapse, dock, and side tab**: Collapse the shelf into a mini capsule that still accepts files, drag it to the top center of any display to dock it, or tuck it against a screen edge into a slim side tab you can click or drag back out.
+- **Quick actions and Services**: Open With, Reveal in Finder, Quick Look, AirDrop, Mail, Messages, Notes, Reminders, and clipboard copy/paste are one click away, alongside the full macOS Services catalog provided by installed apps. Available services depend on your installed apps and system permissions.
+- **Launch at login**: Optionally start Layby automatically when you log in, with a guided approval flow if macOS requires it.
 - **Multiple languages**: Follow the system language or switch languages in settings, with changes applied immediately.
 
 ## Installation
@@ -145,3 +146,7 @@ Code under `Layby/` is organized by responsibility: `Activation/` handles activa
 For interaction details, see the documentation on [folder browsing](docs/folder-browsing.md), [Quick Look](docs/quick-look.md), [the mini capsule](docs/mini-capsule.md), [notch docking](docs/notch-docking.md), and [file services](docs/file-services.md) (in Chinese).
 
 Issues and pull requests are welcome. When reporting drag-and-drop problems, include your macOS version, source app, activation method, and steps to reproduce. For notch or multiple-display issues, also describe your display setup.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=gonnabeafreeman/layby&type=date&legend=top-left)](https://www.star-history.com/?repos=gonnabeafreeman%2Flayby&type=date&legend=top-left)

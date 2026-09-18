@@ -14,11 +14,12 @@ Layby 是一个基于 Swift 和 SwiftUI / AppKit 编写的 macOS 文件暂存工
 
 - **随手呼出**：拖拽文件时摇晃鼠标、按住修饰键，或拖到刘海区域；也支持全局快捷键和菜单栏入口。
 - **集中暂存**：接收文件、文件夹，以及来源应用通过 File Promise 提供的文件。可以拖动整个堆叠，也可以展开后选择部分文件拖出。
-- **查看和选择**：在缩略图网格与文件列表之间切换，支持多选、键盘导航、复制和在 Finder 中显示。
+- **查看和选择**：在缩略图网格与文件列表之间切换，支持多选、键盘导航、复制和在 Finder 中显示。把文件拖到 Finder 时会按文件名排好序落地，不再堆叠在一起。
 - **浏览文件夹**：双击进入文件夹，逐层返回，直接预览、复制或拖出其中的文件。
 - **快速查看**：选中文件后按空格，使用 macOS 原生 Quick Look 预览。
-- **收起与停靠**：停放区可以收成迷你胶囊，收起后仍能接收文件；拖到任意屏幕顶部中央可吸附固定。
-- **文件服务**：通过右键菜单或堆叠上的服务按钮，把文件交给已安装应用提供的 macOS Services。可用项目取决于本机安装的应用与系统权限。
+- **收起、停靠与贴边**：停放区可以收成迷你胶囊，收起后仍能接收文件；拖到任意屏幕顶部中央可吸附固定；也可以贴到屏幕左右边缘，收成一个纤细的贴边小标签，点击或拖出即可恢复。
+- **快捷操作与文件服务**：用应用打开、在 Finder 中显示、快速查看、隔空投送、邮件、信息、备忘录、提醒事项，以及复制/粘贴到剪贴板，均一键可达；此外还能通过已安装应用提供的完整 macOS Services 目录处理文件。可用项目取决于本机安装的应用与系统权限。
+- **开机自启动**：可在设置中开启登录时自动启动 Layby，如需系统授权会引导你完成相应设置。
 - **多语言**：跟随系统语言，也可以在设置中切换，即时生效。
 
 ## 安装
@@ -145,3 +146,7 @@ bash scripts/test-services-popup.sh
 交互细节见 [文件夹浏览](docs/folder-browsing.md)、[快速查看](docs/quick-look.md)、[迷你胶囊](docs/mini-capsule.md)、[刘海吸附](docs/notch-docking.md) 和 [文件服务](docs/file-services.md)。
 
 欢迎提交 Issue 或 PR。反馈拖拽问题时，请附上 macOS 版本、来源应用、使用的呼出方式和复现步骤；涉及刘海或多显示器时，也请说明屏幕配置。
+
+## Star 趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=gonnabeafreeman/layby&type=date&legend=top-left)](https://www.star-history.com/?repos=gonnabeafreeman%2Flayby&type=date&legend=top-left)
