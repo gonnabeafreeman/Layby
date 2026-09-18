@@ -96,10 +96,15 @@ final class FileDragView<Content: View>: NSView, NSDraggingSource, ShelfFileSele
         guard !hasStarted, let initial = mouseDownEvent,
               hypot(event.locationInWindow.x - initial.locationInWindow.x,
                     event.locationInWindow.y - initial.locationInWindow.y) >= 4 else { return }
-        let entries = store.dragItems(for: scope)
+        // Sorted by name so multiple files land pre-arranged (rather than piled on
+        // one point) when dropped into a Finder icon view, without touching the
+        // user's Finder sort preference.
+        let entries = store.dragItems(for: scope).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         guard !entries.isEmpty else { return }
         activeItems = entries
         let origin = convert(event.locationInWindow, from: nil)
+        let columns = max(1, Int(ceil(sqrt(Double(entries.count)))))
+        let spacing: CGFloat = 72
         let draggingItems = entries.enumerated().compactMap { index, entry -> NSDraggingItem? in
             guard let url = entry.url, let lease = entry.lease else { return nil }
             let writer: NSPasteboardWriting
@@ -111,8 +116,11 @@ final class FileDragView<Content: View>: NSView, NSDraggingSource, ShelfFileSele
                 writer = provider
             } else { writer = url as NSURL }
             let item = NSDraggingItem(pasteboardWriter: writer)
-            let offset = CGFloat(min(index, 3)) * 3
-            item.setDraggingFrame(CGRect(x: origin.x - 20 + offset, y: origin.y - 20 - offset, width: 40, height: 40), contents: entry.icon)
+            let row = index / columns
+            let col = index % columns
+            let x = origin.x - 20 + CGFloat(col) * spacing
+            let y = origin.y - 20 - CGFloat(row) * spacing
+            item.setDraggingFrame(CGRect(x: x, y: y, width: 40, height: 40), contents: entry.icon)
             return item
         }
         guard !draggingItems.isEmpty else { return }
@@ -120,7 +128,7 @@ final class FileDragView<Content: View>: NSView, NSDraggingSource, ShelfFileSele
         store.isDraggingOut = true
         let session = beginDraggingSession(with: draggingItems, event: event, source: self)
         session.animatesToStartingPositionsOnCancelOrFail = true
-        session.draggingFormation = .pile
+        session.draggingFormation = .none
     }
 
     override func mouseUp(with event: NSEvent) {
