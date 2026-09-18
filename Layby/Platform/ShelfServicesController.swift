@@ -9,6 +9,9 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
     static let pathAliases = [NSPasteboard.PasteboardType("NSStringPboardType"), .init("NSPasteboardTypeString")]
     static let sendTypes: [NSPasteboard.PasteboardType] = [.fileURL, .URL, filenamesType, .string] + pathAliases
     private let catalog: FileServiceCatalog
+    private let sharingServices: ([URL]) -> [NSSharingService]
+    private let applicationsForURL: (URL) -> [URL]
+    private let defaultApplicationForURL: (URL) -> URL?
     private let performService: (String, NSPasteboard) -> Bool
     private let store: ShelfStore
     private weak var pendingServicesView: NSView?
@@ -20,9 +23,15 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
     private var sentLeases: [ObjectIdentifier: FileAccessLease] = [:]
 
     init(store: ShelfStore, catalog: FileServiceCatalog? = nil,
+         sharingServices: @escaping ([URL]) -> [NSSharingService] = { NSSharingService.sharingServices(forItems: $0) },
+         applicationsForURL: @escaping (URL) -> [URL] = { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
+         defaultApplicationForURL: @escaping (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) },
          performService: @escaping (String, NSPasteboard) -> Bool = { NSPerformService($0, $1) }) {
         self.store = store
         self.catalog = catalog ?? .shared
+        self.sharingServices = sharingServices
+        self.applicationsForURL = applicationsForURL
+        self.defaultApplicationForURL = defaultApplicationForURL
         self.performService = performService
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive),
@@ -128,32 +137,24 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         menu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
     }
 
-    /// Appends the three shared menu groups: Open With, the file actions, and
-    /// Services. Keeping this in one place makes the stack button and each file's
-    /// context menu follow the same visual hierarchy.
+    /// Appends the two shared menu groups: file actions and the services exposed
+    /// by the macOS share sheet. Empty groups and unavailable actions are omitted.
     private func appendQuickActionGroups(to menu: NSMenu, quickLookEnabled: Bool,
                                          quickLookAction: @escaping () -> Void) {
-        let actions = quickActionItems(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction)
-        guard let openWith = actions.first else { return }
-        menu.addItem(openWith)
-        menu.addItem(.separator())
-        actions.dropFirst().forEach(menu.addItem)
-        menu.addItem(.separator())
+        let groups = quickActionGroups(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction)
+        for (index, group) in groups.enumerated() where !group.isEmpty {
+            if index > 0 { menu.addItem(.separator()) }
+            group.forEach(menu.addItem)
+        }
+        if !groups.allSatisfy(\.isEmpty) { menu.addItem(.separator()) }
     }
 
-    /// The fixed file-action group shown after "Open With", driven by whatever
-    /// `items` currently resolves to (the full stack, or the selection). Every
-    /// entry has a leading icon: native application icons when available and a
-    /// recognisable system symbol when macOS does not expose one.
-    private func quickActionItems(quickLookEnabled: Bool, quickLookAction: @escaping () -> Void) -> [NSMenuItem] {
+    /// The first group contains local file actions. The second mirrors every
+    /// currently usable service from the macOS share sheet.
+    private func quickActionGroups(quickLookEnabled: Bool,
+                                   quickLookAction: @escaping () -> Void) -> [[NSMenuItem]] {
         let selection = items
         let urls = sharingURLs(for: selection)
-        // No named NSSharingService exists for Notes/Reminders; discovering the
-        // registered share extensions is still the only way to reach them and
-        // get their icon, even though the API itself is soft-deprecated.
-        let discovered = urls.map(NSSharingService.sharingServices(forItems:)) ?? []
-        let notes = discoveredService(titleContains: ["Notes", "备忘录"], among: discovered)
-        let reminders = discoveredService(titleContains: ["Reminders", "提醒事项"], among: discovered)
 
         let finder = ShelfMenuAction("在 Finder 中显示", enabled: urls != nil) {
             if let urls { NSWorkspace.shared.activateFileViewerSelecting(urls) }
@@ -167,28 +168,23 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         quickLook.image = Self.menuSymbol("eye")
         Self.showMenuImage(quickLook)
 
-        return [
-            openWithMenuItem(for: urls),
-            finder,
-            quickLook,
-            sharingAction("隔空投送", service: NSSharingService(named: .sendViaAirDrop), urls: urls, fallbackSymbol: "airdrop"),
-            sharingAction("邮件", service: NSSharingService(named: .composeEmail), urls: urls, fallbackSymbol: "envelope"),
-            sharingAction("信息", service: NSSharingService(named: .composeMessage), urls: urls, fallbackSymbol: "message"),
-            sharingAction("备忘录", service: notes, urls: urls, fallbackSymbol: "note.text"),
-            sharingAction("提醒事项", service: reminders, urls: urls, fallbackSymbol: "checklist")
-        ]
-    }
+        var fileActions: [NSMenuItem] = []
+        if let openWith = openWithMenuItem(for: urls) { fileActions.append(openWith) }
+        fileActions.append(contentsOf: [finder, quickLook])
 
-    private func discoveredService(titleContains keys: [String], among services: [NSSharingService]) -> NSSharingService? {
-        services.first { service in keys.contains { service.title.localizedCaseInsensitiveContains($0) } }
-    }
-
-    private func sharingAction(_ title: String, service: NSSharingService?, urls: [URL]?, fallbackSymbol: String) -> NSMenuItem {
-        let canPerform = urls.flatMap { u in service.map { $0.canPerform(withItems: u) } } ?? false
-        let action = ShelfMenuAction(title, enabled: canPerform) { [weak self] in self?.perform(service, urls: urls) }
-        action.image = Self.menuIcon(service?.image) ?? Self.menuSymbol(fallbackSymbol)
-        Self.showMenuImage(action)
-        return action
+        let shareActions: [NSMenuItem]
+        if let urls {
+            shareActions = sharingServices(urls).compactMap { service in
+                guard service.canPerform(withItems: urls) else { return nil }
+                let action = ShelfMenuAction(service.title) { [weak self] in self?.perform(service, urls: urls) }
+                action.image = Self.menuIcon(service.image)
+                Self.showMenuImage(action)
+                return action
+            }
+        } else {
+            shareActions = []
+        }
+        return [fileActions, shareActions]
     }
 
     private func sharingURLs(for selection: [ShelfItem]) -> [URL]? {
@@ -205,26 +201,28 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         service.perform(withItems: urls)
     }
 
-    /// "Open With…" leads the list, mirroring Finder: a submenu of every capable
-    /// application (default first) plus "Other…" to browse for one. It carries no
-    /// icon of its own; each listed application shows its own icon.
-    private func openWithMenuItem(for urls: [URL]?) -> NSMenuItem {
+    /// "Open With…" mirrors Finder: a submenu of every capable application
+    /// (default first) plus "Other…". The command is omitted when no application
+    /// supports every selected file and carries the first application's icon.
+    private func openWithMenuItem(for urls: [URL]?) -> NSMenuItem? {
+        guard let urls, !urls.isEmpty else { return nil }
+        let applications = openWithApplications(for: urls)
+        guard let firstApplication = applications.first else { return nil }
         let item = NSMenuItem(title: L10n.text("用…打开"), action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         submenu.allowsContextMenuPlugIns = false
-        if let urls, !urls.isEmpty {
-            for app in openWithApplications(for: urls) {
-                let action = ShelfMenuAction(FileManager.default.displayName(atPath: app.path)) {
-                    NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
-                }
-                action.image = Self.menuIcon(NSWorkspace.shared.icon(forFile: app.path))
-                Self.showMenuImage(action)
-                submenu.addItem(action)
+        for app in applications {
+            let action = ShelfMenuAction(FileManager.default.displayName(atPath: app.path)) {
+                NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
             }
-            if submenu.numberOfItems > 0 { submenu.addItem(.separator()) }
-            submenu.addItem(ShelfMenuAction("其他…") { [weak self] in self?.chooseOtherApplication(for: urls) })
+            action.image = Self.menuIcon(NSWorkspace.shared.icon(forFile: app.path))
+            Self.showMenuImage(action)
+            submenu.addItem(action)
         }
-        item.isEnabled = urls != nil
+        submenu.addItem(.separator())
+        submenu.addItem(ShelfMenuAction("其他…") { [weak self] in self?.chooseOtherApplication(for: urls) })
+        item.image = Self.menuIcon(NSWorkspace.shared.icon(forFile: firstApplication.path))
+        Self.showMenuImage(item)
         item.submenu = submenu
         return item
     }
@@ -232,11 +230,11 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
     /// Applications capable of opening every selected file, default application first.
     private func openWithApplications(for urls: [URL]) -> [URL] {
         guard let first = urls.first else { return [] }
-        var candidates = Set(NSWorkspace.shared.urlsForApplications(toOpen: first).map(\.standardizedFileURL))
+        var candidates = Set(applicationsForURL(first).map(\.standardizedFileURL))
         for url in urls.dropFirst() where !candidates.isEmpty {
-            candidates.formIntersection(Set(NSWorkspace.shared.urlsForApplications(toOpen: url).map(\.standardizedFileURL)))
+            candidates.formIntersection(Set(applicationsForURL(url).map(\.standardizedFileURL)))
         }
-        let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: first)?.standardizedFileURL
+        let defaultApp = defaultApplicationForURL(first)?.standardizedFileURL
         return candidates.sorted { a, b in
             if a == defaultApp { return true }
             if b == defaultApp { return false }

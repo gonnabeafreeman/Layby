@@ -57,12 +57,13 @@ struct FileServiceCatalogTests {
         let textOnly = FileService(id: "test.text", title: "Process text files", invocationName: "Process text files",
                                    applicationName: "Test", fileTypes: ["public.plain-text"])
         var invoked: [(String, [String], String?, [URL])] = []
-        let services = ShelfServicesController(store: store, catalog: FileServiceCatalog(entries: [entry, textOnly])) { name, board in
+        let services = ShelfServicesController(store: store, catalog: FileServiceCatalog(entries: [entry, textOnly]),
+                                                performService: { name, board in
             invoked.append((name, board.propertyList(forType: ShelfServicesController.filenamesType) as? [String] ?? [],
                             board.string(forType: .init("NSPasteboardTypeString")),
                             board.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []))
             return false // No third-party application is executed by this test.
-        }
+        })
         defer { services.stop(); store.clear() }
         let menu = services.fileServicesMenu()
         #expect(menu.items.map(\.title) == [entry.title])
