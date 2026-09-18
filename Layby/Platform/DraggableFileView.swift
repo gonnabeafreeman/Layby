@@ -58,9 +58,20 @@ final class FileDragView<Content: View>: NSView, NSDraggingSource, ShelfFileSele
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let id = itemID, let panel = window as? ShelfPanel else { return super.menu(for: event) }
+        panel.makeFirstResponder(self)
+        if panel.hasPendingInteractionFocus {
+            let point = convert(event.locationInWindow, from: nil)
+            panel.performAfterInteractionFocus { [weak self, weak panel] in
+                guard let self, let panel, self.window === panel,
+                      let menu = panel.services?.contextMenu(for: id, preview: { [weak panel] id in
+                          panel?.quickLook?.preview(id)
+                      }) else { return }
+                menu.popUp(positioning: nil, at: point, in: self)
+            }
+            return nil
+        }
         NSApp.activate()
         panel.makeKey()
-        panel.makeFirstResponder(self)
         return panel.services?.contextMenu(for: id) { [weak panel] id in panel?.quickLook?.preview(id) }
     }
 

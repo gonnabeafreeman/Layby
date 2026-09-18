@@ -8,8 +8,12 @@ final class ShelfPanel: NSPanel {
     var isDocked = false
     var permitsSideCollapse = false
     var isMovingShelf = false
+    var activatesOnInteraction = false
     var onSidePointer: ((NSEvent.EventType, CGPoint) -> Void)?
     private var tracksSidePointer = false
+    private var interactionFocusRequest: UUID?
+    var hasPendingInteractionFocus: Bool { interactionFocusRequest != nil }
+    private var pendingInteractionAction: (@MainActor @Sendable () -> Void)?
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         if permitsSideCollapse || isMovingShelf { return frameRect }
@@ -51,6 +55,13 @@ final class ShelfPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+           activatesOnInteraction {
+            // NSPanel does not reliably activate its owning app for the first
+            // content click. Activate before dispatch so both empty areas and
+            // file views gain keyboard focus from the same click.
+            requestInteractionFocus()
+        }
         if event.type == .leftMouseDown, permitsSideCollapse {
             tracksSidePointer = true
         }
@@ -61,6 +72,48 @@ final class ShelfPanel: NSPanel {
         }
         if event.type == .leftMouseDown { selectionBackground?.handleMouseDown(event) }
         super.sendEvent(event)
+    }
+
+    func requestInteractionFocus() {
+        // A second click during the same activation must join the original
+        // request. Re-reading isActive here can observe its transitional value
+        // and would allow a context menu to open too early.
+        guard interactionFocusRequest == nil else { return }
+        let request = UUID()
+        interactionFocusRequest = request
+        let wasActive = NSApp.isActive
+        NSApp.activate(ignoringOtherApps: true)
+        // `activate` may flip isActive before AppKit finishes the activation
+        // transaction. Only an app that was already active may focus and open a
+        // menu synchronously; otherwise wait for didBecomeActive.
+        if wasActive { completeInteractionFocusIfNeeded() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard self?.interactionFocusRequest == request else { return }
+            self?.cancelInteractionFocus()
+        }
+    }
+
+    func completeInteractionFocusIfNeeded() {
+        guard hasPendingInteractionFocus, activatesOnInteraction else { return }
+        guard NSApp.isActive else { return }
+        interactionFocusRequest = nil
+        makeKey()
+        let action = pendingInteractionAction
+        pendingInteractionAction = nil
+        if let action { DispatchQueue.main.async(execute: action) }
+    }
+
+    func performAfterInteractionFocus(_ action: @escaping @MainActor @Sendable () -> Void) {
+        if hasPendingInteractionFocus {
+            pendingInteractionAction = action
+        } else {
+            action()
+        }
+    }
+
+    func cancelInteractionFocus() {
+        interactionFocusRequest = nil
+        pendingInteractionAction = nil
     }
 
     override func keyDown(with event: NSEvent) {
@@ -200,6 +253,7 @@ final class ShelfWindowController {
     private let surface: ShelfSurfaceView
     private let quickLook: ShelfQuickLookController
     private var accessibilityObserver: NSObjectProtocol?
+    private var applicationActivationObserver: NSObjectProtocol?
     private var shelfHost: NSHostingView<ShelfView>?
     private var capsuleHost: NSHostingView<ShelfCapsuleView>?
     private var sideTabHost: NSHostingView<ShelfSideTabView>?
@@ -315,6 +369,11 @@ final class ShelfWindowController {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateAccessibility() }
             }
+        applicationActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: NSApp, queue: .main
+        ) { [weak panel] _ in
+            MainActor.assumeIsolated { panel?.completeInteractionFocusIfNeeded() }
+        }
     }
 
     private func installShelfHost(alpha: CGFloat = 1) {
@@ -439,6 +498,7 @@ final class ShelfWindowController {
         let revision = UUID()
         presentationRevision = revision
         finishExpansionAnimation()
+        updateActivationBehavior()
         guard !isCollapsed, panel.isVisible, let screen = panel.screen ?? NSScreen.main else {
             store.finishPresentationChange()
             destination.blocksInteraction = false
@@ -891,12 +951,28 @@ final class ShelfWindowController {
 
     private func updateCornerRadius() {
         panel.permitsFileServices = !isCollapsed
+        updateActivationBehavior()
         let radius = isCollapsed && !isSideCollapsed ? ShelfLayout.capsuleCornerRadius : ShelfLayout.cornerRadius
         glass.isCollapsed = isCollapsed && !isSideCollapsed
         surface.cornerRadius = radius
         destination.layer?.cornerRadius = radius
         if dragHandle.isCollapsed != isCollapsed { dragHandle.isCollapsed = isCollapsed }
         dragHandle.isHidden = isSideCollapsed
+    }
+
+    /// Expanded file browsers explicitly activate on their initial click. The
+    /// panel itself remains non-activating because changing that style at runtime
+    /// leaves WindowServer constraints stale on docked and secondary displays.
+    /// Compact and collapsed shelves remain passive drop targets.
+    private func updateActivationBehavior() {
+        let activatesOnClick = !isCollapsed && store.presentation.isExpanded
+        let beganActivating = activatesOnClick && !panel.activatesOnInteraction
+        panel.activatesOnInteraction = activatesOnClick
+        if !activatesOnClick { panel.cancelInteractionFocus() }
+        // Entering the browser is itself a user click from the passive stack.
+        // Start activation here so an immediate right-click joins the same
+        // pending request instead of briefly opening a menu mid-transition.
+        if beganActivating, panel.isVisible { panel.requestInteractionFocus() }
     }
 
     /// Count visible shelf content on each display, including capsules and a
@@ -1004,6 +1080,7 @@ final class ShelfWindowController {
         quickLook.stop()
         services.stop()
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
+        if let applicationActivationObserver { NotificationCenter.default.removeObserver(applicationActivationObserver) }
     }
 
     private func updateAccessibility() {

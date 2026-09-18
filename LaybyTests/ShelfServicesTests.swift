@@ -163,6 +163,52 @@ struct ShelfServicesTests {
         }
     }
 
+    @Test func expandedBrowsersActivateOnClickWhileCompactShelfDoesNot() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyPanelActivation-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ShelfStore()
+        store.add(try files(in: root))
+        try await settle(store)
+        let shelf = ShelfWindowController(store: store)
+        defer { shelf.stop(); store.clear() }
+
+        #expect(!shelf.panel.activatesOnInteraction)
+        store.present(.list)
+        #expect(shelf.panel.activatesOnInteraction)
+        #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
+        shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+        shelf.panel.resignKey()
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 100, y: 100),
+            modifierFlags: [], timestamp: 0, windowNumber: shelf.panel.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        shelf.panel.sendEvent(click)
+        #expect(shelf.panel.isKeyWindow || shelf.panel.hasPendingInteractionFocus)
+        store.present(.grid)
+        #expect(shelf.panel.activatesOnInteraction)
+        #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
+        store.present(.stack)
+        #expect(!shelf.panel.activatesOnInteraction)
+        #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
+    }
+
+    @Test func enteringListFromAnUnfocusedStackStartsFocusBeforeContextMenus() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyListFocusRace-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ShelfStore()
+        store.add(try files(in: root))
+        try await settle(store)
+        let shelf = ShelfWindowController(store: store)
+        defer { shelf.stop(); store.clear() }
+        shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+
+        #expect(!shelf.panel.activatesOnInteraction)
+        store.present(.list)
+        #expect(shelf.panel.activatesOnInteraction)
+        #expect(shelf.panel.isKeyWindow || shelf.panel.hasPendingInteractionFocus)
+    }
+
     @Test func unavailableGroupsNeverSendPartialSelections() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyServiceUnavailable-\(UUID())")
