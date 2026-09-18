@@ -179,6 +179,21 @@ struct SettingsView: View {
             } footer: {
                 Text(L10n.text("选择应用的显示语言，更改后立即生效。"))
             }
+            Section {
+                Toggle(L10n.text("开机自启动"), isOn: Binding(
+                    get: { coordinator.launchAtLoginEnabled },
+                    set: { coordinator.setLaunchAtLoginEnabled($0) }
+                ))
+                if let message = coordinator.launchAtLoginMessage {
+                    Text(message).font(.caption)
+                        .foregroundStyle(coordinator.launchAtLoginNeedsApproval ? .orange : .secondary)
+                }
+                if coordinator.launchAtLoginNeedsApproval {
+                    Button(L10n.text("打开登录项设置")) { coordinator.openLoginItemsSettings() }
+                }
+            } footer: {
+                Text(L10n.text("登录 Mac 后自动启动 Layby。"))
+            }
         }
         .formStyle(.grouped)
     }

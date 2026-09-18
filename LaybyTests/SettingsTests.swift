@@ -4,6 +4,21 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct SettingsTests {
+    private final class LoginItemStub: LaunchAtLoginManaging {
+        var status: LaunchAtLoginStatus
+        var error: Error?
+        private(set) var openedSystemSettings = false
+
+        init(status: LaunchAtLoginStatus) { self.status = status }
+
+        func setEnabled(_ enabled: Bool) throws {
+            if let error { throw error }
+            status = enabled ? .enabled : .disabled
+        }
+
+        func openSystemSettings() { openedSystemSettings = true }
+    }
+
     @Test func languageAndActivationChoicesSurviveReload() throws {
         let suite = "Layby.SettingsTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -68,7 +83,32 @@ struct SettingsTests {
         #expect(HotKeyShortcut.standard.label == "⌃⌥空格")
         L10n.configure(.system, preferredLanguages: ["en-US"])
         #expect(L10n.text("通用设置") == "General")
+        #expect(L10n.text("开机自启动") == "Launch at Login")
         L10n.configure(.system, preferredLanguages: ["zh-Hans"])
         #expect(L10n.text("通用设置") == "通用设置")
+    }
+
+    @Test func launchAtLoginUsesSystemStatusAndRollsBackAfterErrors() {
+        let loginItem = LoginItemStub(status: .disabled)
+        let coordinator = AppCoordinator(launchAtLogin: loginItem)
+        #expect(!coordinator.launchAtLoginEnabled)
+
+        coordinator.setLaunchAtLoginEnabled(true)
+        #expect(coordinator.launchAtLoginEnabled)
+        #expect(coordinator.launchAtLoginMessage == nil)
+
+        loginItem.status = .requiresApproval
+        coordinator.refreshLaunchAtLoginStatus()
+        #expect(coordinator.launchAtLoginEnabled)
+        #expect(coordinator.launchAtLoginNeedsApproval)
+        #expect(coordinator.launchAtLoginMessage != nil)
+        coordinator.openLoginItemsSettings()
+        #expect(loginItem.openedSystemSettings)
+
+        loginItem.status = .disabled
+        loginItem.error = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Denied"])
+        coordinator.setLaunchAtLoginEnabled(true)
+        #expect(!coordinator.launchAtLoginEnabled)
+        #expect(coordinator.launchAtLoginMessage?.contains("Denied") == true)
     }
 }

@@ -8,6 +8,10 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
     let settings = AppSettings()
     let store = ShelfStore()
     private(set) var hotKeyMessage: String?
+    private(set) var launchAtLoginEnabled = false
+    private(set) var launchAtLoginNeedsApproval = false
+    private(set) var launchAtLoginMessage: String?
+    @ObservationIgnored private let launchAtLogin: LaunchAtLoginManaging
     @ObservationIgnored private(set) lazy var observation = DragObservationService(settings: settings, store: store)
     @ObservationIgnored private lazy var hotKey = GlobalHotKeyService()
     @ObservationIgnored private lazy var notch = NotchDropController(store: store, settings: settings)
@@ -20,6 +24,12 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
     @ObservationIgnored private var pendingHide: Task<Void, Never>?
     @ObservationIgnored private var dragActivated = false
     @ObservationIgnored private var automaticPresentation = false
+
+    init(launchAtLogin: LaunchAtLoginManaging? = nil) {
+        self.launchAtLogin = launchAtLogin ?? LaunchAtLoginService()
+        super.init()
+        refreshLaunchAtLoginStatus()
+    }
 
     func start() {
         L10n.configure(settings.language)
@@ -67,7 +77,10 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
             })
         }
         workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.observation.refreshPermission() } })
+            object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated {
+                self?.observation.refreshPermission()
+                self?.refreshLaunchAtLoginStatus()
+            } })
         showSettings()
     }
 
@@ -119,6 +132,7 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
 
     private func applySettings() {
         if L10n.configure(settings.language) { store.notice = nil }
+        refreshLaunchAtLoginStatus()
         installMenus()
         updates.setAutomaticChecksEnabled(settings.automaticUpdateChecksEnabled)
         settingsWindow?.title = L10n.text("Layby 设置")
@@ -144,6 +158,41 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
     func openAccessibilitySettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        do {
+            try launchAtLogin.setEnabled(enabled)
+            refreshLaunchAtLoginStatus()
+        } catch {
+            refreshLaunchAtLoginStatus()
+            launchAtLoginMessage = L10n.format("无法更新开机自启动设置：%@", error.localizedDescription)
+        }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        switch launchAtLogin.status {
+        case .disabled:
+            launchAtLoginEnabled = false
+            launchAtLoginNeedsApproval = false
+            launchAtLoginMessage = nil
+        case .enabled:
+            launchAtLoginEnabled = true
+            launchAtLoginNeedsApproval = false
+            launchAtLoginMessage = nil
+        case .requiresApproval:
+            launchAtLoginEnabled = true
+            launchAtLoginNeedsApproval = true
+            launchAtLoginMessage = L10n.text("需要在系统设置的“登录项与扩展”中允许 Layby。")
+        case .unavailable:
+            launchAtLoginEnabled = false
+            launchAtLoginNeedsApproval = false
+            launchAtLoginMessage = L10n.text("当前无法配置开机自启动。")
+        }
+    }
+
+    func openLoginItemsSettings() {
+        launchAtLogin.openSystemSettings()
     }
 
     @objc private func openRepository() {
@@ -173,6 +222,7 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
             settingsWindow = window
         }
         observation.refreshPermission()
+        refreshLaunchAtLoginStatus()
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
