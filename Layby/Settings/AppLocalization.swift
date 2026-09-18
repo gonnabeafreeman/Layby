@@ -97,6 +97,7 @@ final class L10n {
         "展开，查看和拖出单个文件": "Expand to view and drag individual files", "查看全部 %@": "View all %@",
         "%@，%@，拖动以取出此文件": "%@, %@. Drag to take out this file",
         "在 Finder 中显示": "Reveal in Finder", "从停放区移除": "Remove from Shelf", "清空停放区": "Clear Shelf",
+        "复制到剪贴板": "Copy to Clipboard", "从剪贴板粘贴": "Paste from Clipboard",
         "快速查看": "Quick Look", "隔空投送": "AirDrop", "邮件": "Mail", "信息": "Messages",
         "备忘录": "Notes", "提醒事项": "Reminders", "用…打开": "Open With…", "其他…": "Other…", "打开": "Open",
         "当前无法使用该功能": "This action isn't available right now",

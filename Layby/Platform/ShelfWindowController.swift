@@ -70,6 +70,9 @@ final class ShelfPanel: NSPanel {
             if event.type == .leftMouseUp { tracksSidePointer = false }
             return
         }
+        let isBackgroundContextClick = event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        if isBackgroundContextClick, selectionBackground?.handleContextMenu(event) == true { return }
         if event.type == .leftMouseDown { selectionBackground?.handleMouseDown(event) }
         super.sendEvent(event)
     }

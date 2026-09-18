@@ -12,6 +12,7 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
     private let sharingServices: ([URL]) -> [NSSharingService]
     private let applicationsForURL: (URL) -> [URL]
     private let defaultApplicationForURL: (URL) -> URL?
+    private let clipboard: NSPasteboard
     private let performService: (String, NSPasteboard) -> Bool
     private let store: ShelfStore
     private weak var pendingServicesView: NSView?
@@ -26,12 +27,14 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
          sharingServices: @escaping ([URL]) -> [NSSharingService] = { NSSharingService.sharingServices(forItems: $0) },
          applicationsForURL: @escaping (URL) -> [URL] = { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
          defaultApplicationForURL: @escaping (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) },
+         clipboard: NSPasteboard = .general,
          performService: @escaping (String, NSPasteboard) -> Bool = { NSPerformService($0, $1) }) {
         self.store = store
         self.catalog = catalog ?? .shared
         self.sharingServices = sharingServices
         self.applicationsForURL = applicationsForURL
         self.defaultApplicationForURL = defaultApplicationForURL
+        self.clipboard = clipboard
         self.performService = performService
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive),
@@ -122,6 +125,17 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         return menu
     }
 
+    /// Empty browser space has no file-specific target. Keep its menu focused on
+    /// clipboard transfer and shelf-wide maintenance.
+    func backgroundContextMenu() -> NSMenu? {
+        guard store.presentation.isExpanded else { return nil }
+        let menu = NSMenu()
+        menu.allowsContextMenuPlugIns = false
+        menu.automaticallyInsertsWritingToolsItems = false
+        appendGroups([clipboardActions(for: store.exportItems), backgroundManagementActions()], to: menu)
+        return menu
+    }
+
     /// File-specific management remains available from the context menu, but is
     /// separate from the external Services catalog.
     private func appendShelfManagementActions(to menu: NSMenu, item: ShelfItem, id: UUID) {
@@ -137,20 +151,26 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         menu.addItem(ShelfMenuAction("清空停放区") { [store] in store.clear() })
     }
 
-    /// Appends the two shared menu groups: file actions and the services exposed
-    /// by the macOS share sheet. Empty groups and unavailable actions are omitted.
+    /// Appends file actions, available share-sheet services, and clipboard actions.
+    /// Empty groups and unavailable share services are omitted.
     private func appendQuickActionGroups(to menu: NSMenu, quickLookEnabled: Bool,
                                          quickLookAction: @escaping () -> Void) {
         let groups = quickActionGroups(quickLookEnabled: quickLookEnabled, quickLookAction: quickLookAction)
-        for (index, group) in groups.enumerated() where !group.isEmpty {
-            if index > 0 { menu.addItem(.separator()) }
-            group.forEach(menu.addItem)
-        }
+        appendGroups(groups, to: menu)
         if !groups.allSatisfy(\.isEmpty) { menu.addItem(.separator()) }
     }
 
-    /// The first group contains local file actions. The second mirrors every
-    /// currently usable service from the macOS share sheet.
+    private func appendGroups(_ groups: [[NSMenuItem]], to menu: NSMenu) {
+        var appendedGroup = false
+        for group in groups where !group.isEmpty {
+            if appendedGroup { menu.addItem(.separator()) }
+            group.forEach(menu.addItem)
+            appendedGroup = true
+        }
+    }
+
+    /// The first group contains local file actions, the second mirrors every
+    /// usable macOS share-sheet service, and the third handles the clipboard.
     private func quickActionGroups(quickLookEnabled: Bool,
                                    quickLookAction: @escaping () -> Void) -> [[NSMenuItem]] {
         let selection = items
@@ -184,7 +204,44 @@ final class ShelfServicesController: NSObject, @MainActor NSServicesMenuRequesto
         } else {
             shareActions = []
         }
-        return [fileActions, shareActions]
+        return [fileActions, shareActions, clipboardActions(for: selection)]
+    }
+
+    private func clipboardActions(for selection: [ShelfItem]) -> [NSMenuItem] {
+        let copy = ShelfMenuAction("复制到剪贴板", enabled: sharingURLs(for: selection) != nil) { [weak self] in
+            guard let self, self.writeFiles(selection, to: self.clipboard, types: Self.sendTypes) else { return }
+            self.store.notice = L10n.format("已复制 %d 个文件", selection.count)
+        }
+        copy.image = Self.menuSymbol("doc.on.doc")
+        Self.showMenuImage(copy)
+
+        let pastedURLs = clipboardFileURLs()
+        let paste = ShelfMenuAction("从剪贴板粘贴", enabled: !pastedURLs.isEmpty) { [store] in
+            _ = store.add(pastedURLs)
+        }
+        paste.image = Self.menuSymbol("clipboard")
+        Self.showMenuImage(paste)
+        return [copy, paste]
+    }
+
+    private func clipboardFileURLs() -> [URL] {
+        let modern = (clipboard.readObjects(forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        if !modern.isEmpty { return modern.filter(\.isFileURL) }
+        let paths = clipboard.propertyList(forType: Self.filenamesType) as? [String] ?? []
+        return paths.map { URL(fileURLWithPath: $0) }
+    }
+
+    private func backgroundManagementActions() -> [NSMenuItem] {
+        let checkAgain = ShelfMenuAction("重新检查") { [store] in
+            if store.isBrowsingFolder {
+                store.reloadFolder()
+            } else {
+                store.items.forEach { store.retry($0.id) }
+            }
+        }
+        let clear = ShelfMenuAction("清空停放区") { [store] in store.clear() }
+        return [checkAgain, clear]
     }
 
     private func sharingURLs(for selection: [ShelfItem]) -> [URL]? {

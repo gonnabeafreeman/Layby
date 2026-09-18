@@ -50,7 +50,20 @@ final class ShelfStore {
     }
     var isDropTargeted = false
     var isDraggingOut = false
-    var notice: String?
+    var notice: String? {
+        didSet {
+            noticeDismissal?.cancel()
+            guard let expectedNotice = notice else {
+                noticeDismissal = nil
+                return
+            }
+            noticeDismissal = Task { [weak self] in
+                try? await Task.sleep(for: self?.noticeDuration ?? .milliseconds(1_500))
+                guard !Task.isCancelled, let self, self.notice == expectedNotice else { return }
+                self.notice = nil
+            }
+        }
+    }
     private(set) var presentation: ShelfPresentation = .stack { didSet { onPreviewChange?() } }
     /// What ShelfView actually renders. Stays behind `presentation` while the stack and
     /// the expanded list/grid swap, so old content can fade out and the container can
@@ -67,6 +80,8 @@ final class ShelfStore {
     @ObservationIgnored private var importTimeouts: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var thumbnails: [UUID: QLThumbnailGenerator.Request] = [:]
     @ObservationIgnored private var receivedSequences: [Int] = []
+    @ObservationIgnored private var noticeDismissal: Task<Void, Never>?
+    @ObservationIgnored private let noticeDuration: Duration
     @ObservationIgnored private let inspectionQueue: OperationQueue = {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 4
@@ -74,8 +89,9 @@ final class ShelfStore {
         return queue
     }()
 
-    init(managedFiles: ManagedFileStore = ManagedFileStore()) {
+    init(managedFiles: ManagedFileStore = ManagedFileStore(), noticeDuration: Duration = .milliseconds(1_500)) {
         self.managedFiles = managedFiles
+        self.noticeDuration = noticeDuration
         folderBrowser.onChange = { [weak self] in self?.onPreviewChange?() }
     }
 

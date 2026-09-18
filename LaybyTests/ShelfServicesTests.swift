@@ -72,14 +72,16 @@ struct ShelfServicesTests {
         defer { services.stop(); store.clear() }
 
         let stackMenu = services.quickActionsMenu(quickLookEnabled: true, quickLookAction: {})
-        #expect(stackMenu.items.count == 8)
+        #expect(stackMenu.items.count == 11)
         #expect(stackMenu.items[0...2].map(\.title) == ["用…打开", "在 Finder 中显示", "快速查看"].map(L10n.text))
         #expect(stackMenu.items[0...2].allSatisfy { $0.image != nil })
         #expect(stackMenu.items[3].isSeparatorItem)
         #expect(stackMenu.items[4...5].map(\.title) == [shareOne.title, shareTwo.title])
         #expect(stackMenu.items[4...5].allSatisfy { $0.isEnabled })
         #expect(stackMenu.items[6].isSeparatorItem)
-        #expect(stackMenu.items[7].title == L10n.text("服务"))
+        #expect(stackMenu.items[7...8].map(\.title) == ["复制到剪贴板", "从剪贴板粘贴"].map(L10n.text))
+        #expect(stackMenu.items[9].isSeparatorItem)
+        #expect(stackMenu.items[10].title == L10n.text("服务"))
         if #available(macOS 27.0, *) {
             #expect(stackMenu.items[0...2].allSatisfy { $0.preferredImageVisibility == .visible })
         }
@@ -100,11 +102,13 @@ struct ShelfServicesTests {
         #expect(context.items[3].isSeparatorItem)
         #expect(context.items[4...5].map(\.title) == [shareOne.title, shareTwo.title])
         #expect(context.items[6].isSeparatorItem)
-        #expect(context.items[7].title == L10n.text("重新检查"))
-        #expect(context.items[8].title == L10n.text("从停放区移除"))
-        #expect(context.items[9].title == L10n.text("清空停放区"))
-        #expect(context.items[10].isSeparatorItem)
-        #expect(context.items[11].title == L10n.text("服务"))
+        #expect(context.items[7...8].map(\.title) == ["复制到剪贴板", "从剪贴板粘贴"].map(L10n.text))
+        #expect(context.items[9].isSeparatorItem)
+        #expect(context.items[10].title == L10n.text("重新检查"))
+        #expect(context.items[11].title == L10n.text("从停放区移除"))
+        #expect(context.items[12].title == L10n.text("清空停放区"))
+        #expect(context.items[13].isSeparatorItem)
+        #expect(context.items[14].title == L10n.text("服务"))
     }
 
     @Test func menuOmitsOpenWithAndShareGroupsWhenNothingSupportsTheSelection() async throws {
@@ -124,9 +128,59 @@ struct ShelfServicesTests {
         defer { services.stop(); store.clear() }
 
         let menu = services.quickActionsMenu(quickLookEnabled: true, quickLookAction: {})
-        #expect(menu.items.map(\.title) == [L10n.text("在 Finder 中显示"), L10n.text("快速查看"), "", L10n.text("服务")])
+        #expect(menu.items.map(\.title) == [L10n.text("在 Finder 中显示"), L10n.text("快速查看"), "",
+            L10n.text("复制到剪贴板"), L10n.text("从剪贴板粘贴"), "", L10n.text("服务")])
         #expect(menu.items[2].isSeparatorItem)
         #expect(!menu.items.contains { $0.title == L10n.text("用…打开") })
+    }
+
+    @Test func clipboardGroupCopiesSelectionAndPastesFilesIntoTheShelf() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyClipboardMenu-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let urls = try files(in: root)
+        let pasted = root.appendingPathComponent("pasted.txt")
+        try Data("pasted".utf8).write(to: pasted)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let store = ShelfStore()
+        store.add(urls)
+        try await settle(store)
+        store.present(.list)
+        store.selection = [store.items[1].id]
+        let services = ShelfServicesController(store: store, catalog: FileServiceCatalog(entries: []), clipboard: board)
+        defer { services.stop(); store.clear() }
+
+        var menu = try #require(services.contextMenu(for: store.items[1].id, preview: { _ in }))
+        let copyIndex = try #require(menu.items.firstIndex { $0.title == L10n.text("复制到剪贴板") })
+        #expect(menu.items[copyIndex].isEnabled)
+        menu.performActionForItem(at: copyIndex)
+        let copied = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        #expect(copied == [urls[1]])
+
+        board.clearContents()
+        #expect(board.writeObjects([pasted as NSURL]))
+        menu = try #require(services.backgroundContextMenu())
+        #expect(menu.items.map(\.title) == [L10n.text("复制到剪贴板"), L10n.text("从剪贴板粘贴"), "",
+            L10n.text("重新检查"), L10n.text("清空停放区")])
+        #expect(menu.items[2].isSeparatorItem)
+        #expect(!menu.items.contains { $0.title == L10n.text("服务") || $0.title == L10n.text("从停放区移除") })
+        let pasteIndex = try #require(menu.items.firstIndex { $0.title == L10n.text("从剪贴板粘贴") })
+        #expect(menu.items[pasteIndex].isEnabled)
+        menu.performActionForItem(at: pasteIndex)
+        try await settle(store)
+        #expect(store.items.contains { $0.url?.standardizedFileURL == pasted.standardizedFileURL })
+    }
+
+    @Test func operationNoticesDisappearAndNewMessagesRestartTheDismissalWindow() async throws {
+        let store = ShelfStore(noticeDuration: .milliseconds(100))
+        store.notice = "First"
+        try await Task.sleep(for: .milliseconds(60))
+        store.notice = "Second"
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(store.notice == "Second")
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(store.notice == nil)
     }
 
     @Test func rightClickPreservesMultiSelectionAndUsesThePanelRequestor() async throws {

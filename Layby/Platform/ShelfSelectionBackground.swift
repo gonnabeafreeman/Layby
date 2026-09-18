@@ -35,16 +35,34 @@ struct ShelfSelectionBackground: NSViewRepresentable {
     }
 
     func handleMouseDown(_ event: NSEvent) {
-        guard store.presentation.isExpanded, !store.selection.isEmpty, !isHiddenOrHasHiddenAncestor,
-              bounds.contains(convert(event.locationInWindow, from: nil)),
-              let root = window?.contentView else { return }
-        var hit = root.hitTest(root.convert(event.locationInWindow, from: nil))
-        while let view = hit {
-            if let destination = view as? DropDestinationView, destination.blocksInteraction { return }
-            if view is ShelfFileSelectionTarget || view is NSControl || view is HeaderDragView { return }
-            hit = view.superview
-        }
+        guard !store.selection.isEmpty, isBlankArea(event) else { return }
         store.clearSelection()
         window?.makeFirstResponder(nil)
+    }
+
+    /// Returns true when the event belongs to empty list/grid space and has
+    /// therefore been consumed by the shelf's background context menu.
+    func handleContextMenu(_ event: NSEvent) -> Bool {
+        guard isBlankArea(event), let panel = window as? ShelfPanel else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        panel.performAfterInteractionFocus { [weak self, weak panel] in
+            guard let self, let panel, self.window === panel,
+                  let menu = panel.services?.backgroundContextMenu() else { return }
+            menu.popUp(positioning: nil, at: point, in: self)
+        }
+        return true
+    }
+
+    private func isBlankArea(_ event: NSEvent) -> Bool {
+        guard store.presentation.isExpanded, !isHiddenOrHasHiddenAncestor,
+              bounds.contains(convert(event.locationInWindow, from: nil)),
+              let root = window?.contentView else { return false }
+        var hit = root.hitTest(root.convert(event.locationInWindow, from: nil))
+        while let view = hit {
+            if let destination = view as? DropDestinationView, destination.blocksInteraction { return false }
+            if view is ShelfFileSelectionTarget || view is NSControl || view is HeaderDragView { return false }
+            hit = view.superview
+        }
+        return true
     }
 }
