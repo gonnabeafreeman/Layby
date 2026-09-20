@@ -1,15 +1,25 @@
 import SwiftUI
 import AppKit
 
+/// Native glass dims and loses opacity whenever the panel is not key — which,
+/// for this nonactivating shelf, is most of the time. Selection and the active
+/// layout button rely on this hue rather than a neutral gray/system color so
+/// they stay legible against glass at any brightness, not just when key.
+let shelfAccentColor = Color(red: 45.0 / 255, green: 105.0 / 255, blue: 121.0 / 255)
+
+/// The one selection tint used for both a selected file row and the active
+/// grid/list button, so the two always read as the same color.
+func shelfSelectionFill(for colorScheme: ColorScheme) -> Color {
+    shelfAccentColor.opacity(colorScheme == .dark ? 0.38 : 0.22)
+}
+
 struct ShelfView: View {
     @Bindable var store: ShelfStore
     let hide: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var accent: Color {
-        colorScheme == .dark ? Color(red: 0.48, green: 0.9, blue: 0.8) : Color(red: 0.08, green: 0.43, blue: 0.4)
-    }
+    private var accent: Color { shelfAccentColor }
     private var countLabel: String { L10n.fileCount(store.items.count) }
     private var summary: String {
         if let selectionSummary = store.selectionSummary { return selectionSummary }
@@ -213,8 +223,16 @@ struct ShelfView: View {
                 else { FileRowContent(item: item) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(store.selection.contains(item.id) ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor) : .clear,
-                        in: RoundedRectangle(cornerRadius: 16))
+            .background {
+                if store.selection.contains(item.id) {
+                    // A neutral system selection color sits too close in
+                    // lightness to dimmed, non-key glass to read clearly; the
+                    // accent hue keeps it visible regardless of how dark or
+                    // transparent the glass behind it currently is.
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(shelfSelectionFill(for: colorScheme))
+                }
+            }
         }
         .frame(height: grid ? 146 : 54)
         .id(item.id)
@@ -289,8 +307,7 @@ private struct ShelfSolidButtonContent<Label: View>: View {
         let white: Double
         if !isEnabled { white = dark ? 0.20 : 0.93 }
         else if pressed { white = dark ? 0.19 : 0.73 }
-        else if hovered { white = dark ? (selected ? 0.43 : 0.36) : (selected ? 0.72 : 0.82) }
-        else if selected { white = dark ? 0.35 : 0.79 }
+        else if hovered { white = dark ? 0.36 : 0.82 }
         else { white = dark ? 0.27 : 0.90 }
         return Color(white: white)
     }
@@ -298,7 +315,17 @@ private struct ShelfSolidButtonContent<Label: View>: View {
     var body: some View {
         label
             .foregroundStyle(Color.primary.opacity(isEnabled ? 0.9 : 0.35))
-            .background(fill, in: Capsule())
+            .background {
+                if selected, isEnabled {
+                    // The exact same tint as a selected file row, instead of a
+                    // neutral tone layered on an opaque base, so both read as
+                    // the same color regardless of how dark the glass is.
+                    shelfSelectionFill(for: colorScheme)
+                } else {
+                    fill
+                }
+            }
+            .clipShape(Capsule())
             .contentShape(Capsule())
             .onHover { hoverState.wrappedValue = $0 }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
