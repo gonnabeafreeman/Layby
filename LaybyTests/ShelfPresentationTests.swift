@@ -4,16 +4,31 @@ import Testing
 @testable import LaybyKit
 
 struct ShelfPresentationTests {
-    @Test func presentationResizeKeepsTopAndEqualSideTravelNearEdges() {
-        let bounds = CGRect(x: -1440, y: 0, width: 1440, height: 900)
-        for x: CGFloat in [-1400, -900, -300] {
-            let original = CGRect(x: x, y: 250, width: 240, height: 260)
-            let target = ShelfGeometry.presentationFrame(original, size: CGSize(width: 540, height: 400), in: bounds)
-            #expect(target.maxY == original.maxY)
-            #expect(target.midX == original.midX)
-            #expect(original.minX - target.minX == target.maxX - original.maxX)
-            #expect(bounds.contains(target))
-        }
+    /// A stack parked flush against a screen edge must still open a full-size
+    /// grid or list — sliding away from the edge like expanding out of the
+    /// capsule does, rather than clipping the expanded content to fit in place.
+    @MainActor @Test func presentationNearAScreenEdgeSlidesInsteadOfShrinking() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyPresentationEdge-\(UUID()).txt")
+        try Data("test".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = ShelfStore()
+        store.add([file])
+        let shelf = ShelfWindowController(store: store)
+        defer { shelf.stop() }
+        shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
+        let screen = try #require(shelf.panel.screen ?? NSScreen.main)
+        let bounds = screen.visibleFrame.insetBy(dx: 12, dy: 12)
+        let stackSize = ShelfLayout.windowSize(for: .stack)
+        // Flush against the left edge: nowhere near enough room on that side
+        // for the expanded size to grow into without moving.
+        shelf.panel.setFrame(CGRect(x: bounds.minX, y: bounds.minY, width: stackSize.width, height: stackSize.height),
+                             display: false)
+        store.present(.grid)
+        try await Task.sleep(for: .milliseconds(700))
+        let expandedSize = ShelfLayout.windowSize(for: .grid)
+        #expect(shelf.panel.frame.width == expandedSize.width)
+        #expect(shelf.panel.frame.height == expandedSize.height)
+        #expect(bounds.contains(shelf.panel.frame))
     }
 
     @MainActor @Test func presentationOverlapsFadeAndResizeThenCommitsContent() async throws {

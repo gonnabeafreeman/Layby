@@ -522,9 +522,12 @@ final class ShelfWindowController {
             destination.blocksInteraction = false
             return
         }
+        // Slide toward the opposite edge instead of shrinking the target size,
+        // same as expanding out of the capsule: a stack parked near a screen
+        // edge must still open a full-size grid or list, not a clipped one.
         let frame = dockedFrame(for: ShelfLayout.windowSize(for: store.presentation))
-            ?? ShelfGeometry.presentationFrame(panel.frame, size: ShelfLayout.windowSize(for: store.presentation),
-                                               in: screen.visibleFrame.insetBy(dx: 12, dy: 12))
+            ?? ShelfGeometry.resizedFrame(panel.frame, size: ShelfLayout.windowSize(for: store.presentation),
+                                          in: screen.visibleFrame.insetBy(dx: 12, dy: 12))
         guard frame != panel.frame, animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             setFrame(frame, animated: false)
             commitPresentationContent(animated: false, revision: revision)
