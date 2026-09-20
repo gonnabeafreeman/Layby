@@ -55,11 +55,15 @@ final class ShelfPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
-        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
-           activatesOnInteraction {
-            // NSPanel does not reliably activate its owning app for the first
-            // content click. Activate before dispatch so both empty areas and
-            // file views gain keyboard focus from the same click.
+        let isBackgroundContextClick = event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        if isBackgroundContextClick, activatesOnInteraction {
+            // A nonactivating panel can become key and open/track a menu without
+            // making the app the frontmost application — so a context-menu
+            // request only needs the panel focused, never a full NSApp.activate().
+            // Plain clicks and drags must not even do that: selecting or
+            // dragging a file out should never steal focus from the window the
+            // user is dropping onto.
             requestInteractionFocus()
         }
         if event.type == .leftMouseDown, permitsSideCollapse {
@@ -70,26 +74,18 @@ final class ShelfPanel: NSPanel {
             if event.type == .leftMouseUp { tracksSidePointer = false }
             return
         }
-        let isBackgroundContextClick = event.type == .rightMouseDown
-            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
         if isBackgroundContextClick, selectionBackground?.handleContextMenu(event) == true { return }
         if event.type == .leftMouseDown { selectionBackground?.handleMouseDown(event) }
         super.sendEvent(event)
     }
 
     func requestInteractionFocus() {
-        // A second click during the same activation must join the original
-        // request. Re-reading isActive here can observe its transitional value
-        // and would allow a context menu to open too early.
+        // A second click during the same request must join the original one
+        // instead of restarting it.
         guard interactionFocusRequest == nil else { return }
-        let request = UUID()
-        interactionFocusRequest = request
-        let wasActive = NSApp.isActive
-        NSApp.activate(ignoringOtherApps: true)
-        // `activate` may flip isActive before AppKit finishes the activation
-        // transaction. Only an app that was already active may focus and open a
-        // menu synchronously; otherwise wait for didBecomeActive.
-        if wasActive { completeInteractionFocusIfNeeded() }
+        interactionFocusRequest = UUID()
+        completeInteractionFocusIfNeeded()
+        let request = interactionFocusRequest
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard self?.interactionFocusRequest == request else { return }
             self?.cancelInteractionFocus()
@@ -98,12 +94,28 @@ final class ShelfPanel: NSPanel {
 
     func completeInteractionFocusIfNeeded() {
         guard hasPendingInteractionFocus, activatesOnInteraction else { return }
-        guard NSApp.isActive else { return }
-        interactionFocusRequest = nil
-        makeKey()
-        let action = pendingInteractionAction
-        pendingInteractionAction = nil
-        if let action { DispatchQueue.main.async(execute: action) }
+        if !isKeyWindow {
+            // makeKey() on a nonactivating panel is a same-process, same-app
+            // operation — it never needs NSApp to become the frontmost
+            // application, and never dims another app's key window. It usually
+            // settles immediately, but if it hasn't yet, wait for the panel's
+            // own didBecomeKey notification to re-invoke this.
+            makeKey()
+            guard isKeyWindow else { return }
+        }
+        // isKeyWindow can still be a beat ahead of the real WindowServer handoff
+        // settling, especially on this app's very first activation. Re-check one
+        // run-loop turn later before treating the request as truly settled; if
+        // it isn't, a subsequent didBecomeKey notification retries this.
+        let request = interactionFocusRequest
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.interactionFocusRequest == request,
+                  self.activatesOnInteraction, self.isKeyWindow else { return }
+            self.interactionFocusRequest = nil
+            let action = self.pendingInteractionAction
+            self.pendingInteractionAction = nil
+            action?()
+        }
     }
 
     func performAfterInteractionFocus(_ action: @escaping @MainActor @Sendable () -> Void) {
@@ -256,7 +268,7 @@ final class ShelfWindowController {
     private let surface: ShelfSurfaceView
     private let quickLook: ShelfQuickLookController
     private var accessibilityObserver: NSObjectProtocol?
-    private var applicationActivationObserver: NSObjectProtocol?
+    private var panelKeyObserver: NSObjectProtocol?
     private var shelfHost: NSHostingView<ShelfView>?
     private var capsuleHost: NSHostingView<ShelfCapsuleView>?
     private var sideTabHost: NSHostingView<ShelfSideTabView>?
@@ -372,8 +384,11 @@ final class ShelfWindowController {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateAccessibility() }
             }
-        applicationActivationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: NSApp, queue: .main
+        // makeKey() on this app's very first activation can lag a beat behind
+        // isKeyWindow actually settling; the panel's own didBecomeKey is the
+        // authoritative signal that the handoff is really done, so retry there.
+        panelKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
         ) { [weak panel] _ in
             MainActor.assumeIsolated { panel?.completeInteractionFocusIfNeeded() }
         }
@@ -963,19 +978,15 @@ final class ShelfWindowController {
         dragHandle.isHidden = isSideCollapsed
     }
 
-    /// Expanded file browsers explicitly activate on their initial click. The
+    /// Expanded file browsers explicitly activate on a context-menu request. The
     /// panel itself remains non-activating because changing that style at runtime
     /// leaves WindowServer constraints stale on docked and secondary displays.
-    /// Compact and collapsed shelves remain passive drop targets.
+    /// Plain selection and drag-out never activate, in any presentation, so
+    /// dragging a file onto another window never steals its focus back.
     private func updateActivationBehavior() {
         let activatesOnClick = !isCollapsed && store.presentation.isExpanded
-        let beganActivating = activatesOnClick && !panel.activatesOnInteraction
         panel.activatesOnInteraction = activatesOnClick
         if !activatesOnClick { panel.cancelInteractionFocus() }
-        // Entering the browser is itself a user click from the passive stack.
-        // Start activation here so an immediate right-click joins the same
-        // pending request instead of briefly opening a menu mid-transition.
-        if beganActivating, panel.isVisible { panel.requestInteractionFocus() }
     }
 
     /// Count visible shelf content on each display, including capsules and a
@@ -1083,7 +1094,7 @@ final class ShelfWindowController {
         quickLook.stop()
         services.stop()
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
-        if let applicationActivationObserver { NotificationCenter.default.removeObserver(applicationActivationObserver) }
+        if let panelKeyObserver { NotificationCenter.default.removeObserver(panelKeyObserver) }
     }
 
     private func updateAccessibility() {

@@ -63,8 +63,11 @@ final class ShelfQuickLookController: NSObject, @MainActor QLPreviewPanelDataSou
     private func show(_ candidates: [ShelfPreviewItem]) -> Bool {
         guard !candidates.isEmpty, let shelfPanel else { return false }
         items = candidates
-        // The shelf is a nonactivating utility window; make it the key responder
-        // before asking the shared panel to find its controller.
+        // Unlike a plain context menu, QLPreviewPanel is not a nonactivating
+        // window: once it takes key status from the shelf, further keystrokes
+        // (including the Space that should dismiss it) only keep reaching this
+        // app if it is genuinely the active application. Skipping this made the
+        // panel appear once but stop responding to a second Space press.
         NSApp.activate(ignoringOtherApps: true)
         shelfPanel.makeKey()
         guard let panel = QLPreviewPanel.shared() else { items.removeAll(); return false }

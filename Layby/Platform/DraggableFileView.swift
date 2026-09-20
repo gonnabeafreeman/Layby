@@ -60,17 +60,19 @@ final class FileDragView<Content: View>: NSView, NSDraggingSource, ShelfFileSele
         guard let id = itemID, let panel = window as? ShelfPanel else { return super.menu(for: event) }
         panel.makeFirstResponder(self)
         if panel.hasPendingInteractionFocus {
-            let point = convert(event.locationInWindow, from: nil)
             panel.performAfterInteractionFocus { [weak self, weak panel] in
                 guard let self, let panel, self.window === panel,
                       let menu = panel.services?.contextMenu(for: id, preview: { [weak panel] id in
                           panel?.quickLook?.preview(id)
                       }) else { return }
-                menu.popUp(positioning: nil, at: point, in: self)
+                // By the time activation completes, the physical click has already
+                // ended. popUpContextMenu replays the captured mouseDown event, unlike
+                // popUp(positioning:at:in:), which starts a fresh tracking session that
+                // sees no button down and dismisses the menu the instant it appears.
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
             }
             return nil
         }
-        NSApp.activate()
         panel.makeKey()
         return panel.services?.contextMenu(for: id) { [weak panel] id in panel?.quickLook?.preview(id) }
     }

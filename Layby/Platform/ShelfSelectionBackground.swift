@@ -44,12 +44,20 @@ struct ShelfSelectionBackground: NSViewRepresentable {
     /// therefore been consumed by the shelf's background context menu.
     func handleContextMenu(_ event: NSEvent) -> Bool {
         guard isBlankArea(event), let panel = window as? ShelfPanel else { return false }
-        let point = convert(event.locationInWindow, from: nil)
-        panel.performAfterInteractionFocus { [weak self, weak panel] in
-            guard let self, let panel, self.window === panel,
-                  let menu = panel.services?.backgroundContextMenu() else { return }
-            menu.popUp(positioning: nil, at: point, in: self)
+        if panel.hasPendingInteractionFocus {
+            panel.performAfterInteractionFocus { [weak self, weak panel] in
+                guard let self, let panel, self.window === panel,
+                      let menu = panel.services?.backgroundContextMenu() else { return }
+                // By the time activation completes, the physical click has already
+                // ended. popUpContextMenu replays the captured mouseDown event, unlike
+                // popUp(positioning:at:in:), which starts a fresh tracking session that
+                // sees no button down and dismisses the menu the instant it appears.
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+            }
+            return true
         }
+        guard let menu = panel.services?.backgroundContextMenu() else { return true }
+        menu.popUp(positioning: nil, at: convert(event.locationInWindow, from: nil), in: self)
         return true
     }
 

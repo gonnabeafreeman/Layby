@@ -217,7 +217,7 @@ struct ShelfServicesTests {
         }
     }
 
-    @Test func expandedBrowsersActivateOnClickWhileCompactShelfDoesNot() async throws {
+    @Test func expandedBrowsersActivateOnlyOnContextClickNotPlainSelectionOrDrag() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyPanelActivation-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -233,11 +233,24 @@ struct ShelfServicesTests {
         #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
         shelf.show(near: CGPoint(x: 500, y: 500), focus: false)
         shelf.panel.resignKey()
+
+        // A plain click — the same event that begins a drag-out — must never
+        // call NSApp.activate and steal focus from whatever window the user is
+        // about to drop onto. The panel may still become key on its own (normal
+        // AppKit behavior for a nonactivating panel), which never activates the app.
         let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 100, y: 100),
             modifierFlags: [], timestamp: 0, windowNumber: shelf.panel.windowNumber,
             context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         shelf.panel.sendEvent(click)
+        #expect(!shelf.panel.hasPendingInteractionFocus)
+
+        // A context-menu request still needs the shelf focused so the menu works.
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: CGPoint(x: 100, y: 100),
+            modifierFlags: [], timestamp: 0, windowNumber: shelf.panel.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        shelf.panel.sendEvent(rightClick)
         #expect(shelf.panel.isKeyWindow || shelf.panel.hasPendingInteractionFocus)
+
         store.present(.grid)
         #expect(shelf.panel.activatesOnInteraction)
         #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
@@ -246,7 +259,7 @@ struct ShelfServicesTests {
         #expect(shelf.panel.styleMask.contains(.nonactivatingPanel))
     }
 
-    @Test func enteringListFromAnUnfocusedStackStartsFocusBeforeContextMenus() async throws {
+    @Test func enteringListModeNeverActivatesUntilAContextClick() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LaybyListFocusRace-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -260,6 +273,13 @@ struct ShelfServicesTests {
         #expect(!shelf.panel.activatesOnInteraction)
         store.present(.list)
         #expect(shelf.panel.activatesOnInteraction)
+        // Switching into the browser is itself not a click; it must not activate on its own.
+        #expect(!shelf.panel.hasPendingInteractionFocus)
+
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: CGPoint(x: 100, y: 100),
+            modifierFlags: [], timestamp: 0, windowNumber: shelf.panel.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        shelf.panel.sendEvent(rightClick)
         #expect(shelf.panel.isKeyWindow || shelf.panel.hasPendingInteractionFocus)
     }
 
