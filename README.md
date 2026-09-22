@@ -10,7 +10,9 @@
 
 Layby is a macOS file shelf built with Swift and SwiftUI / AppKit. Drag files onto the floating shelf, release the mouse, then drag them out once you’ve found the destination window. You can also collect files from different folders and drag them out together.
 
-https://github.com/user-attachments/assets/5f74b71d-c23e-4b0f-b9fd-bc1f3b0dcb02
+<p align="center">
+  <img src="assets/demo_0.gif" alt="Layby demo">
+</p>
 
 ## Features
 
