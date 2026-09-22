@@ -10,9 +10,7 @@
 
 Layby 是一个基于 Swift 和 SwiftUI / AppKit 编写的 macOS 文件暂存工具。把文件拖进浮动停放区，松开鼠标，找到目标窗口后再拖出去。也可以从不同文件夹收集文件，最后一起拖走。
 
-<p align="center">
-  <img src="assets/demo_0.gif" alt="Layby 演示">
-</p>
+https://github.com/user-attachments/assets/5f74b71d-c23e-4b0f-b9fd-bc1f3b0dcb02
 
 ## 功能
 
