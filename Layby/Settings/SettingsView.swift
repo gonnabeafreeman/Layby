@@ -102,6 +102,15 @@ struct SettingsView: View {
                 Text(L10n.text("点击键位后按下新组合键，Esc 取消。"))
             }
             Section {
+                Picker(L10n.text("移动拖出快捷键"), selection: $settings.moveShortcut) {
+                    ForEach(MoveDragShortcut.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text(L10n.text("拖出文件"))
+            } footer: {
+                Text(L10n.text("默认复制；按住该键开始拖拽到 Finder，可移动原文件。来源应用生成的临时文件不支持移动原件。"))
+            }
+            Section {
                 LabeledContent(L10n.text("已识别的拖拽"), value: L10n.format("%d 次", coordinator.observation.observedDragCount))
                 LabeledContent(L10n.text("辅助功能访问"), value: L10n.text(coordinator.observation.hasAccessibilityTrust ? "已允许" : "未允许"))
                 Text(L10n.text("若在其他应用中摇晃无反应，可在系统设置中允许辅助功能访问。"))

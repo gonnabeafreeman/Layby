@@ -93,6 +93,36 @@ struct FolderBrowserTests {
         #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
+    @Test func movedChildRefreshesFolderWithoutRemovingItsShelfRoot() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let child = folder.appendingPathComponent("child.txt")
+        let sibling = folder.appendingPathComponent("sibling.txt")
+        let destination = root.appendingPathComponent("moved.txt")
+        try Data("child".utf8).write(to: child)
+        try Data("sibling".utf8).write(to: sibling)
+        let store = ShelfStore(managedFiles: ManagedFileStore(root: root.appendingPathComponent("managed")))
+        store.add([folder])
+        await settle(store)
+        let rootID = try #require(store.items.first?.id)
+        store.present(.list)
+        store.openFolder(rootID)
+        await settle(store)
+        let childItem = try #require(store.visibleItems.first(where: { $0.name == "child.txt" }))
+        try FileManager.default.copyItem(at: child, to: destination)
+
+        store.reconcileMovedDrag([childItem], operation: .move, attempts: 1)
+        for _ in 0..<100 where FileManager.default.fileExists(atPath: child.path) || store.folderBrowser.isLoading {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        await settle(store)
+        #expect(store.items.map(\.id) == [rootID])
+        #expect(store.visibleItems.map(\.name) == ["sibling.txt"])
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     @Test func closeAndBackDiscardPendingDirectoryResults() async throws {
         let root = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }

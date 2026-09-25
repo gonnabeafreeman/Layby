@@ -27,6 +27,7 @@ struct SettingsTests {
         #expect(settings.language == .system)
         #expect(settings.menuBarEnabled)
         #expect(settings.automaticUpdateChecksEnabled)
+        #expect(settings.moveShortcut == .commandShift)
         var changes = 0
         settings.onChange = { changes += 1 }
         settings.language = .english
@@ -37,13 +38,15 @@ struct SettingsTests {
         settings.topEdgeEnabled = true
         settings.menuBarEnabled = false
         settings.automaticUpdateChecksEnabled = false
+        settings.moveShortcut = .commandOption
         let restored = AppSettings(defaults: defaults)
         #expect(restored.language == .english)
         #expect(!restored.shakeEnabled && !restored.modifierEnabled)
         #expect(!restored.notchEnabled && !restored.hotKeyEnabled)
         #expect(restored.topEdgeEnabled)
         #expect(!restored.menuBarEnabled && !restored.automaticUpdateChecksEnabled)
-        #expect(changes == 8)
+        #expect(restored.moveShortcut == .commandOption)
+        #expect(changes == 9)
         restored.language = .chinese
         #expect(AppSettings(defaults: defaults).language == .chinese)
         restored.language = .system
@@ -56,6 +59,13 @@ struct SettingsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("unsupported", forKey: "language")
         #expect(AppSettings(defaults: defaults).language == .system)
+    }
+
+    @Test func moveDragShortcutRequiresItsWholeModifierCombination() {
+        #expect(MoveDragShortcut.commandShift.matches([.command, .shift]))
+        #expect(!MoveDragShortcut.commandShift.matches(.command))
+        #expect(!MoveDragShortcut.commandShift.matches([.command, .shift, .option]))
+        #expect(MoveDragShortcut.commandOption.matches([.command, .option]))
     }
 
     @Test func systemLanguageUsesSupportedPreferencesAndOverridesWin() {

@@ -91,7 +91,7 @@ These file actions apply to the expanded grid or list.
 
 ### How are files handled?
 
-Regular files stay in their original locations; Layby stores references to them. Dragging files out uses a copy operation. Items remain on the shelf after a successful drag so you can use them again.
+Regular files stay in their original locations; Layby stores references to them. Dragging files out copies by default, and items remain on the shelf after a successful copy. To move an original file, hold **Command + Shift** when starting a drag to a Finder folder. You can change this shortcut in Settings under **Dragging Files Out**. Layby removes the shelf item only when the destination reports a move and the original path no longer contains that file. Cancelled or failed drags keep their items. Temporary files supplied through File Promises cannot move their originals.
 
 **Closing the shelf clears all items, leaving it empty the next time you open it.** Collapsing it into a capsule preserves its contents, selection, and current browsing location. Shelf contents are not restored after restarting the app.
 

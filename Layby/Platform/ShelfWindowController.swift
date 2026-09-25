@@ -259,6 +259,7 @@ final class ShelfWindowController {
     let destination: DropDestinationView
     let dragHandle = HeaderDragView()
     private let store: ShelfStore
+    private let settings: AppSettings
     private let services: ShelfServicesController
     private let dockTargets: @MainActor () -> [ShelfDockTarget]
     private(set) var dockedDisplayID: UInt32?
@@ -295,8 +296,10 @@ final class ShelfWindowController {
     var onBeginMoving: (() -> Void)?
     var onCollapse: (() -> Void)?
 
-    init(store: ShelfStore, dockTargets: @escaping @MainActor () -> [ShelfDockTarget] = { ShelfDockTarget.currentScreens() }) {
+    init(store: ShelfStore, settings: AppSettings? = nil,
+         dockTargets: @escaping @MainActor () -> [ShelfDockTarget] = { ShelfDockTarget.currentScreens() }) {
         self.store = store
+        self.settings = settings ?? AppSettings()
         services = ShelfServicesController(store: store)
         self.dockTargets = dockTargets
         panel = ShelfPanel(contentRect: CGRect(origin: .zero, size: ShelfLayout.windowSize),
@@ -396,7 +399,7 @@ final class ShelfWindowController {
 
     private func installShelfHost(alpha: CGFloat = 1) {
         guard shelfHost == nil else { return }
-        let host = NSHostingView(rootView: ShelfView(store: store,
+        let host = NSHostingView(rootView: ShelfView(store: store, settings: settings,
             hide: { [weak self] in self?.hide() }))
         host.sizingOptions = []
         host.translatesAutoresizingMaskIntoConstraints = false

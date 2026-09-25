@@ -282,6 +282,67 @@ final class ShelfStore {
         notice = L10n.format("已复制 %d 个文件", urls.count)
     }
 
+    /// On a move, AppKit reports that the destination performed its side of the
+    /// transfer. Finder may have moved the file already; otherwise the source
+    /// must remove its original, but only if it is still the same file.
+    func reconcileMovedDrag(_ dragged: [ShelfItem], operation: NSDragOperation, attempts: Int = 12) {
+        guard !dragged.isEmpty else { return }
+        guard operation.contains(.move) else {
+            if operation != [] { notice = L10n.text("原文件未发生移动") }
+            return
+        }
+        Task { [weak self, dragged] in
+            guard let self else { return }
+            // Give Finder a chance to finish an asynchronous cross-volume move.
+            let checkCount = max(1, attempts)
+            for attempt in 0..<checkCount {
+                if dragged.allSatisfy({ self.sourceHasMoved($0) }) { break }
+                if attempt + 1 < checkCount { try? await Task.sleep(for: .milliseconds(250)) }
+            }
+            for entry in dragged where !self.sourceHasMoved(entry) {
+                await self.removeOriginalAfterMove(entry)
+            }
+            let moved = dragged.filter { self.sourceHasMoved($0) }
+            let rootIDs = Set(moved.map(\.id)).intersection(self.items.map(\.id))
+            if !rootIDs.isEmpty { self.remove(rootIDs) }
+            if moved.contains(where: { !rootIDs.contains($0.id) }), self.isBrowsingFolder { self.reloadFolder() }
+            if moved.isEmpty {
+                self.notice = L10n.text("移动未完成；原文件仍在原位置。")
+            } else if moved.count == dragged.count {
+                self.notice = L10n.format("已移动 %d 个文件", moved.count)
+            } else {
+                self.notice = L10n.format("已移动 %d 个文件；其余原文件仍在原位置。", moved.count)
+            }
+        }
+    }
+
+    private func sourceHasMoved(_ item: ShelfItem) -> Bool {
+        guard !item.isManaged, let url = item.url else { return false }
+        guard FileManager.default.fileExists(atPath: url.path) else { return true }
+        guard let identity = item.identity, let current = try? FileMetadata.read(url) else { return false }
+        return current.identity != identity
+    }
+
+    private func removeOriginalAfterMove(_ item: ShelfItem) async {
+        guard !item.isManaged, let url = item.url, let identity = item.identity,
+              let lease = item.lease else { return }
+        let queue = inspectionQueue
+        let result: Result<Void, Error> = await withCheckedContinuation { continuation in
+            queue.addOperation { [lease] in
+                continuation.resume(returning: Result {
+                    _ = lease // Retain the security scope until the file operation ends.
+                    guard FileManager.default.fileExists(atPath: url.path) else { return }
+                    let current = try FileMetadata.read(url)
+                    guard current.identity == identity else { return }
+                    try FileManager.default.removeItem(at: url)
+                })
+            }
+        }
+        if case .failure(let error) = result, FileManager.default.fileExists(atPath: url.path) {
+            Logger.files.error("Move source cleanup failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     private func inspect(id: UUID, lease: FileAccessLease, generation expected: UUID) {
         Task { [weak self] in
             guard let queue = self?.inspectionQueue else { return }

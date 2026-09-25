@@ -13,6 +13,38 @@ enum DragModifier: String, CaseIterable, Identifiable {
     }
 }
 
+enum MoveDragShortcut: String, CaseIterable, Identifiable {
+    case commandShift, command, commandOption, optionShift
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .commandShift: "⌘⇧ Command + Shift"
+        case .command: "⌘ Command"
+        case .commandOption: "⌘⌥ Command + Option"
+        case .optionShift: "⌥⇧ Option + Shift"
+        }
+    }
+    var symbols: String {
+        switch self {
+        case .commandShift: "⌘⇧"
+        case .command: "⌘"
+        case .commandOption: "⌘⌥"
+        case .optionShift: "⌥⇧"
+        }
+    }
+    var flags: NSEvent.ModifierFlags {
+        switch self {
+        case .commandShift: [.command, .shift]
+        case .command: .command
+        case .commandOption: [.command, .option]
+        case .optionShift: [.option, .shift]
+        }
+    }
+    func matches(_ flags: NSEvent.ModifierFlags) -> Bool {
+        flags.intersection([.command, .shift, .option, .control]) == self.flags
+    }
+}
+
 struct HotKeyShortcut: Codable, Equatable {
     var keyCode: UInt32
     var modifiers: UInt32
@@ -44,6 +76,7 @@ final class AppSettings {
     var automaticUpdateChecksEnabled: Bool { didSet { save() } }
     var sensitivity: ShakeSensitivity { didSet { save() } }
     var modifier: DragModifier { didSet { save() } }
+    var moveShortcut: MoveDragShortcut { didSet { save() } }
     var shortcut: HotKeyShortcut { didSet { save() } }
     var excludedBundleIDs: String { didSet { save() } }
     @ObservationIgnored var onChange: (() -> Void)?
@@ -64,6 +97,7 @@ final class AppSettings {
         automaticUpdateChecksEnabled = defaults.bool(forKey: "automaticUpdateChecksEnabled")
         sensitivity = ShakeSensitivity(rawValue: defaults.string(forKey: "sensitivity") ?? "") ?? .balanced
         modifier = DragModifier(rawValue: defaults.string(forKey: "modifier") ?? "") ?? .shift
+        moveShortcut = MoveDragShortcut(rawValue: defaults.string(forKey: "moveShortcut") ?? "") ?? .commandShift
         shortcut = defaults.data(forKey: "shortcut").flatMap { try? JSONDecoder().decode(HotKeyShortcut.self, from: $0) } ?? .standard
         excludedBundleIDs = defaults.string(forKey: "excludedBundleIDs") ?? ""
     }
@@ -84,6 +118,7 @@ final class AppSettings {
         defaults.set(automaticUpdateChecksEnabled, forKey: "automaticUpdateChecksEnabled")
         defaults.set(sensitivity.rawValue, forKey: "sensitivity")
         defaults.set(modifier.rawValue, forKey: "modifier")
+        defaults.set(moveShortcut.rawValue, forKey: "moveShortcut")
         defaults.set(try? JSONEncoder().encode(shortcut), forKey: "shortcut")
         defaults.set(excludedBundleIDs, forKey: "excludedBundleIDs")
         onChange?()

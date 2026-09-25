@@ -65,6 +65,26 @@ struct FileLifecycleTests {
         #expect(store.selection == Set(ids))
     }
 
+    @Test func moveShortcutKeepsSelectedFilesTogetherUntilDragStarts() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = (0..<3).map { root.appendingPathComponent("move-selection-\($0).txt") }
+        for file in files { try Data("file".utf8).write(to: file) }
+        let store = ShelfStore(managedFiles: ManagedFileStore(root: root.appendingPathComponent("managed")))
+        store.add(files)
+        await settle(store)
+        let ids = store.items.map(\.id)
+        store.select(ids[0], extending: false)
+        store.select(ids[1], extending: true)
+        let row = FileDragView(store: store, scope: .item(ids[1]), content: Text("test"))
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+            modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        row.mouseDown(with: down)
+        #expect(store.selection == Set(ids[0...1]))
+        #expect(store.dragItems(for: .item(ids[1])).map(\.id) == Array(ids[0...1]))
+    }
+
     @Test func selectionSummaryCountsOnlySelectedFilesAndHandlesUnknownSizes() async throws {
         let root = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -155,6 +175,52 @@ struct FileLifecycleTests {
         #expect(store.dragItems(for: .item(readyID)).count == 1)
         store.remove(Set(store.items.filter { !$0.state.isReady }.map(\.id)))
         #expect(store.dragItems(for: .all).count == 1)
+    }
+
+    @Test func moveDragRemovesOriginalOnlyAfterDestinationReportsMove() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.txt")
+        let destination = root.appendingPathComponent("destination.txt")
+        try Data("content".utf8).write(to: source)
+        let store = ShelfStore(managedFiles: ManagedFileStore(root: root.appendingPathComponent("managed")),
+                               noticeDuration: .seconds(10))
+        store.add([source])
+        await settle(store)
+        let entry = try #require(store.items.first)
+
+        store.reconcileMovedDrag([entry], operation: .copy, attempts: 1)
+        store.reconcileMovedDrag([entry], operation: [], attempts: 1)
+        #expect(store.items.count == 1)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        // Stand in for Finder's completed destination-side transfer.
+        try FileManager.default.copyItem(at: source, to: destination)
+        store.reconcileMovedDrag([entry], operation: .move, attempts: 1)
+        for _ in 0..<50 where !store.items.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.items.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test func moveDragDoesNotDeleteAReplacementAtTheOldPath() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = root.appendingPathComponent("original.txt")
+        let moved = root.appendingPathComponent("moved.txt")
+        try Data("old".utf8).write(to: original)
+        let store = ShelfStore(managedFiles: ManagedFileStore(root: root.appendingPathComponent("managed")),
+                               noticeDuration: .seconds(10))
+        store.add([original])
+        await settle(store)
+        let entry = try #require(store.items.first)
+        try FileManager.default.moveItem(at: original, to: moved)
+        try Data("new".utf8).write(to: original)
+
+        store.reconcileMovedDrag([entry], operation: .move, attempts: 1)
+        for _ in 0..<50 where !store.items.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.items.isEmpty)
+        #expect(try String(contentsOf: original, encoding: .utf8) == "new")
+        #expect(try String(contentsOf: moved, encoding: .utf8) == "old")
     }
 
     @Test func presentationResetsOnClearAndLastRemoval() async throws {

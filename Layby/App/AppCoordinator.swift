@@ -15,7 +15,7 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
     @ObservationIgnored private(set) lazy var observation = DragObservationService(settings: settings, store: store)
     @ObservationIgnored private lazy var hotKey = GlobalHotKeyService()
     @ObservationIgnored private lazy var notch = NotchDropController(store: store, settings: settings)
-    @ObservationIgnored private lazy var shelf = ShelfWindowController(store: store)
+    @ObservationIgnored private lazy var shelf = ShelfWindowController(store: store, settings: settings)
     @ObservationIgnored private lazy var updates = UpdateService()
     @ObservationIgnored private var settingsWindow: NSWindow?
     @ObservationIgnored private var statusItem: NSStatusItem?

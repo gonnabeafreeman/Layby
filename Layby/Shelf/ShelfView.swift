@@ -15,11 +15,13 @@ func shelfSelectionFill(for colorScheme: ColorScheme) -> Color {
 
 struct ShelfView: View {
     @Bindable var store: ShelfStore
+    let settings: AppSettings
     let hide: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var accent: Color { shelfAccentColor }
+    private var moveHint: String { L10n.format("按住 %@ 拖到 Finder 以移动原文件", settings.moveShortcut.symbols) }
     private var countLabel: String { L10n.fileCount(store.items.count) }
     private var summary: String {
         if let selectionSummary = store.selectionSummary { return selectionSummary }
@@ -150,12 +152,13 @@ struct ShelfView: View {
 
     private var stack: some View {
         VStack(spacing: 8) {
-            DraggableFileView(store: store, scope: .all) {
+            DraggableFileView(store: store, scope: .all, settings: settings) {
                 FileStackContent(items: Array(store.items.suffix(5)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .help(L10n.text(store.dragItems(for: .all).isEmpty ? "接收完成后可整体拖出；可展开列表处理不可用文件" : "拖动堆叠，取出全部文件"))
+            .help(L10n.text(store.dragItems(for: .all).isEmpty ? "接收完成后可整体拖出；可展开列表处理不可用文件" : "拖动堆叠，取出全部文件")
+                + (store.items.allSatisfy({ !$0.isManaged }) ? " · " + moveHint : ""))
             .accessibilityLabel(L10n.format("文件堆叠，%@，拖动以取出全部文件", countLabel))
             .onAppear { requestStackThumbnails() }
             .onChange(of: store.readyItems.map(\.id)) { _, _ in requestStackThumbnails() }
@@ -217,7 +220,7 @@ struct ShelfView: View {
     }
 
     private func fileCell(_ item: ShelfItem, grid: Bool) -> some View {
-        DraggableFileView(store: store, scope: .item(item.id)) {
+        DraggableFileView(store: store, scope: .item(item.id), settings: settings) {
             Group {
                 if grid { FileTileContent(item: item) }
                 else { FileRowContent(item: item) }
@@ -237,7 +240,7 @@ struct ShelfView: View {
         .frame(height: grid ? 146 : 54)
         .id(item.id)
         .accessibilityLabel(L10n.format("%@，%@，拖动以取出此文件", item.displayName, item.displaySubtitle))
-        .help(item.displayName)
+        .help(item.displayName + (item.isManaged ? "" : " · " + moveHint))
         .onAppear { store.requestThumbnail(item.id) }
         .onChange(of: item.state) { _, _ in store.requestThumbnail(item.id) }
     }
