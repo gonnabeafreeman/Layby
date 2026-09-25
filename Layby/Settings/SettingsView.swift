@@ -80,12 +80,6 @@ struct SettingsView: View {
                 Toggle(L10n.text("拖到刘海区域"), isOn: $settings.notchEnabled)
                 Toggle(L10n.text("无刘海时使用屏幕顶部中央"), isOn: $settings.topEdgeEnabled)
                     .disabled(!settings.notchEnabled)
-            } header: {
-                Text(L10n.text("呼出方式"))
-            } footer: {
-                Text(L10n.text("先按住修饰键再拖拽，或拖拽途中按住，都可以呼出。"))
-            }
-            Section {
                 Toggle(L10n.text("启用快捷键"), isOn: $settings.hotKeyEnabled)
                 HStack {
                     Text(L10n.text("新建停放区"))
@@ -97,18 +91,30 @@ struct SettingsView: View {
                     Text(message).font(.caption).foregroundStyle(.orange)
                 }
             } header: {
-                Text(L10n.text("全局快捷键"))
+                Text(L10n.text("呼出方式"))
             } footer: {
-                Text(L10n.text("点击键位后按下新组合键，Esc 取消。"))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.text("先按住修饰键再拖拽，或拖拽途中按住，都可以呼出。"))
+                    Text(L10n.text("点击键位后按下新组合键，Esc 取消。"))
+                }
             }
             Section {
-                Picker(L10n.text("移动拖出快捷键"), selection: $settings.moveShortcut) {
-                    ForEach(MoveDragShortcut.allCases) { Text($0.title).tag($0) }
+                HStack(spacing: 6) {
+                    Text(L10n.text("按住"))
+                    Picker("", selection: $settings.moveShortcut) {
+                        ForEach(MoveDragShortcut.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 166)
+                    .accessibilityLabel(L10n.text("剪贴操作快捷键"))
+                    Text(L10n.text("拖出文件执行剪贴操作"))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } header: {
                 Text(L10n.text("拖出文件"))
             } footer: {
-                Text(L10n.text("默认复制；按住该键开始拖拽到 Finder，可移动原文件。来源应用生成的临时文件不支持移动原件。"))
+                Text(L10n.text("普通拖出会复制文件；剪贴仅适用于拖到 Finder 的原文件，临时文件不支持剪贴原件。"))
             }
             Section {
                 LabeledContent(L10n.text("已识别的拖拽"), value: L10n.format("%d 次", coordinator.observation.observedDragCount))
