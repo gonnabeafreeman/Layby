@@ -142,30 +142,32 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 12)
-                LabeledContent(L10n.text("当前版本"), value: AppInfo.version)
-                Button(L10n.text("检查更新…")) { coordinator.checkForUpdates() }
+                HStack(spacing: 10) {
+                    Text(L10n.text("当前版本"))
+                    Text(AppInfo.version)
+                        .fontWeight(.medium)
+                        .monospacedDigit()
+                    Spacer(minLength: 16)
+                    Button(L10n.text("检查更新…")) { coordinator.checkForUpdates() }
+                }
             }
             Section {
-                HStack(alignment: .top, spacing: 16) {
-                    Image("GitHubMark")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 28, height: 28)
-                        .frame(width: 48, height: 48)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityHidden(true)
-
-                    VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image("GitHubMark")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                            .accessibilityHidden(true)
                         Text(L10n.text("支持 Layby"))
                             .font(.headline)
-                        Text(supportDescription)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .tint(.accentColor)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(supportDescription)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .tint(.accentColor)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
