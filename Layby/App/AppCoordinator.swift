@@ -105,8 +105,12 @@ final class AppCoordinator: NSObject, NSWindowDelegate {
         pendingHide?.cancel()
         if !manual, dragActivated, shelf.panel.isVisible { return }
         if !manual { dragActivated = true }
-        automaticPresentation = !manual && store.items.isEmpty && !shelf.isCollapsed && !shelf.isDocked
-        shelf.show(near: point, focus: manual, notchScreen: screen, expand: manual || reason == .hotKey)
+        automaticPresentation = !manual && !shelf.panel.isVisible && store.items.isEmpty
+        if reason == .shake || reason == .modifier {
+            shelf.recall(near: point)
+        } else {
+            shelf.show(near: point, focus: manual, notchScreen: screen, expand: manual || reason == .hotKey)
+        }
         notch.suppressOccupiedScreens()
         Logger.activation.debug("Shelf presented; manual=\(manual)")
     }

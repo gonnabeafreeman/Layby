@@ -8,6 +8,7 @@ final class ShelfPanel: NSPanel {
     var isDocked = false
     var permitsSideCollapse = false
     var isMovingShelf = false
+    var isRecallingShelf = false
     var activatesOnInteraction = false
     var onSidePointer: ((NSEvent.EventType, CGPoint) -> Void)?
     private var tracksSidePointer = false
@@ -16,7 +17,7 @@ final class ShelfPanel: NSPanel {
     private var pendingInteractionAction: (@MainActor @Sendable () -> Void)?
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        if permitsSideCollapse || isMovingShelf { return frameRect }
+        if permitsSideCollapse || isMovingShelf || isRecallingShelf { return frameRect }
         // Only transparent shadow padding may extend into the menu bar while docked.
         if isDocked, let screen = screen ?? self.screen,
            screen.visibleFrame.contains(frameRect.insetBy(dx: ShelfLayout.shadowInset,
@@ -281,6 +282,7 @@ final class ShelfWindowController {
     private var expansionAnimation: Task<Void, Never>?
     private var presentationTransition: Task<Void, Never>?
     private var presentationRevision = UUID()
+    private var recallRevision = UUID()
     private static let expansionAnimationKey = "layby.expand"
     private static let collapseAnimationKey = "layby.collapse"
     private(set) var isCollapsed = false
@@ -1054,7 +1056,70 @@ final class ShelfWindowController {
         if focus { panel.makeKey() }
     }
 
+    /// Bring an existing shelf to a file drag without losing its contents or presentation.
+    /// A capsule expands as the window travels; a side tab emerges from its screen edge.
+    func recall(near point: CGPoint) {
+        guard panel.isVisible else { show(near: point, focus: false); return }
+        finishPresentationTransition()
+        finishExpansionAnimation()
+        finishCollapseAnimation()
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main else { return }
+        let bounds = screen.visibleFrame.insetBy(dx: 12, dy: 12)
+        let target = ShelfGeometry.frame(size: ShelfLayout.windowSize(for: store.presentation), near: point, in: bounds)
+
+        if isSideCollapsed {
+            sideCollapsedEdge = nil
+            panel.permitsSideCollapse = false
+            isCollapsed = false
+            destination.preservesBrowsingOnDrop = false
+            expandedFrame = nil
+            collapsedFrame = nil
+            sidePressPoint = nil
+            sidePressFrame = nil
+            sidePressScreen = nil
+            sideTabHost?.isHidden = true
+            sideTabHost?.alphaValue = 1
+            capsuleHost?.isHidden = true
+            shelfHost?.isHidden = false
+            shelfHost?.alphaValue = 1
+            updateCornerRadius()
+        } else if isCollapsed {
+            store.isDropTargeted = false
+            restore(animated: true, focus: false)
+        }
+        guard !isCollapsed else { return }
+        setDockedDisplay(nil)
+        store.refreshReferences()
+        panel.orderFrontRegardless()
+        animateRecall(to: target)
+    }
+
+    private func animateRecall(to frame: CGRect) {
+        let revision = UUID()
+        recallRevision = revision
+        let distance = hypot(frame.midX - panel.frame.midX, frame.midY - panel.frame.midY)
+        panel.isRecallingShelf = true
+        guard distance > 2, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            setFrame(frame, animated: false)
+            panel.isRecallingShelf = false
+            return
+        }
+        let duration = min(0.36, 0.24 + Double(distance) / 8_000)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.7, 0.3, 1)
+            panel.animator().setFrame(frame, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.recallRevision == revision else { return }
+                self.panel.isRecallingShelf = false
+            }
+        }
+    }
+
     func hide() {
+        recallRevision = UUID()
+        panel.isRecallingShelf = false
         presentationTransition?.cancel()
         presentationTransition = nil
         presentationRevision = UUID()
